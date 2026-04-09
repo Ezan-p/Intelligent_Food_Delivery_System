@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>用户登录 - 智能外卖管理平台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <style>
+        .login-container {
+            max-width: 400px;
+            margin: 60px auto;
+            padding: 40px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.1);
+        }
+        .login-container h2 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #333;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #2d7ff9;
+            box-shadow: 0 0 0 3px rgba(45, 127, 249, 0.1);
+        }
+        .error-message {
+            color: #dc2626;
+            font-size: 14px;
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #fee2e2;
+            border-radius: 8px;
+            display: none;
+        }
+        .success-message {
+            color: #059669;
+            font-size: 14px;
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #d1fae5;
+            border-radius: 8px;
+            display: none;
+        }
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+        .button-group button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #2d7ff9;
+            color: #fff;
+        }
+        .btn-primary:hover {
+            background: #1e5fbf;
+        }
+        .btn-secondary {
+            background: #f5f7ff;
+            color: #334155;
+            border: 1px solid #e2e8f0;
+        }
+        .btn-secondary:hover {
+            background: #f0f5ff;
+        }
+        .toggle-form {
+            text-align: center;
+            margin-top: 16px;
+            font-size: 14px;
+            color: #666;
+        }
+        .toggle-form button {
+            background: none;
+            border: none;
+            color: #2d7ff9;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .form-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 24px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .form-tab {
+            flex: 1;
+            padding: 12px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #999;
+            font-weight: 500;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+        }
+        .form-tab.active {
+            color: #2d7ff9;
+            border-bottom-color: #2d7ff9;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>智能外卖管理平台</h1>
+        <p>用户登录与注册</p>
+        <nav class="page-nav">
+            <a class="nav-link" href="/">客户端</a>
+            <a class="nav-link" href="/merchant">商家端</a>
+        </nav>
+    </header>
+
+    <main>
+        <div class="login-container">
+            <div class="form-tabs">
+                <button class="form-tab active" onclick="switchTab('login')">登录</button>
+                <button class="form-tab" onclick="switchTab('register')">注册</button>
+            </div>
+
+            <!-- 登录表单 -->
+            <form id="loginForm" style="display: block;">
+                <h2>登录账户</h2>
+                <div class="error-message" id="loginError"></div>
+                <div class="success-message" id="loginSuccess"></div>
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="loginUsername" placeholder="输入用户名" required />
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="loginPassword" placeholder="输入密码" required />
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center;">
+                        <input type="checkbox" id="rememberMe" style="margin-right: 8px;" />
+                        记住我
+                    </label>
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn-primary">登录</button>
+                </div>
+            </form>
+
+            <!-- 注册表单 -->
+            <form id="registerForm" style="display: none;">
+                <h2>创建账户</h2>
+                <div class="error-message" id="registerError"></div>
+                <div class="success-message" id="registerSuccess"></div>
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="registerUsername" placeholder="输入用户名" required />
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="registerPassword" placeholder="至少6个字符" required />
+                </div>
+                <div class="form-group">
+                    <label>电话号码（可选）</label>
+                    <input type="tel" id="registerPhone" placeholder="输入电话号码" />
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn-primary">注册</button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+    <script>
+        function switchTab(tab) {
+            const loginForm = document.getElementById('loginForm');
+            const registerForm = document.getElementById('registerForm');
+            const tabs = document.querySelectorAll('.form-tab');
+
+            if (tab === 'login') {
+                loginForm.style.display = 'block';
+                registerForm.style.display = 'none';
+                tabs[0].classList.add('active');
+                tabs[1].classList.remove('active');
+            } else {
+                loginForm.style.display = 'none';
+                registerForm.style.display = 'block';
+                tabs[0].classList.remove('active');
+                tabs[1].classList.add('active');
+            }
+        }
+
+        // 页面加载时填充记住的登录信息
+        window.addEventListener('load', () => {
+            const savedUsername = localStorage.getItem('rememberedUsername');
+            const savedPassword = localStorage.getItem('rememberedPassword');
+            const rememberMe = localStorage.getItem('rememberMe') === 'true';
+
+            if (savedUsername) {
+                document.getElementById('loginUsername').value = savedUsername;
+            }
+            if (savedPassword && rememberMe) {
+                document.getElementById('loginPassword').value = savedPassword;
+                document.getElementById('rememberMe').checked = true;
+            }
+        });
+
+        // 登录处理
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('loginUsername').value.trim();
+            const password = document.getElementById('loginPassword').value.trim();
+            const rememberMe = document.getElementById('rememberMe').checked;
+            const errorSpan = document.getElementById('loginError');
+            const successSpan = document.getElementById('loginSuccess');
+
+            errorSpan.style.display = 'none';
+            successSpan.style.display = 'none';
+
+            if (!username || !password) {
+                errorSpan.textContent = '请填写所有字段';
+                errorSpan.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/users/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    errorSpan.textContent = data.error || '登录失败';
+                    errorSpan.style.display = 'block';
+                    return;
+                }
+
+                // 保存 session
+                localStorage.setItem('sessionId', data.session_id);
+                localStorage.setItem('user', JSON.stringify(data.user));
+
+                // 如果勾选了记住我，保存用户名和密码
+                if (rememberMe) {
+                    localStorage.setItem('rememberedUsername', username);
+                    localStorage.setItem('rememberedPassword', password);
+                    localStorage.setItem('rememberMe', 'true');
+                } else {
+                    // 如果没有勾选，清除保存的信息
+                    localStorage.removeItem('rememberedUsername');
+                    localStorage.removeItem('rememberedPassword');
+                    localStorage.removeItem('rememberMe');
+                }
+
+                successSpan.textContent = '登录成功，正在跳转...';
+                successSpan.style.display = 'block';
+
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1500);
+            } catch (error) {
+                errorSpan.textContent = '网络错误，请重试';
+                errorSpan.style.display = 'block';
+            }
+        });
+
+        // 注册处理
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('registerUsername').value.trim();
+            const password = document.getElementById('registerPassword').value.trim();
+            const phone = document.getElementById('registerPhone').value.trim();
+            const errorSpan = document.getElementById('registerError');
+            const successSpan = document.getElementById('registerSuccess');
+
+            errorSpan.style.display = 'none';
+            successSpan.style.display = 'none';
+
+            if (!username || !password) {
+                errorSpan.textContent = '用户名和密码必填';
+                errorSpan.style.display = 'block';
+                return;
+            }
+
+            if (password.length < 6) {
+                errorSpan.textContent = '密码至少6个字符';
+                errorSpan.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/users/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, phone })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    errorSpan.textContent = data.error || '注册失败';
+                    errorSpan.style.display = 'block';
+                    return;
+                }
+
+                // 保存 session
+                localStorage.setItem('sessionId', data.session_id);
+                localStorage.setItem('user', JSON.stringify(data.user));
+
+                // 保存用户名以便下次登录时自动填充
+                localStorage.setItem('rememberedUsername', username);
+
+                successSpan.textContent = '注册成功，正在跳转...';
+                successSpan.style.display = 'block';
+
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1500);
+            } catch (error) {
+                errorSpan.textContent = '网络错误，请重试';
+                errorSpan.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>

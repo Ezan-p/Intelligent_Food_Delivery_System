@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>商家端 - 智能外卖管理平台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <header>
+        <h1>商家端</h1>
+        <p>管理商品、分类、套餐和查看统计数据。</p>
+        <nav class="page-nav">
+            <a class="nav-link" href="/">客户端</a>
+            <a class="nav-link active" href="/merchant">商家端</a>
+        </nav>
+    </header>
+
+    <main>
+        <section class="dashboard-section">
+            <h2>工作台</h2>
+            <div id="dashboardStats" class="stats-grid"></div>
+        </section>
+
+        <section class="category-section">
+            <h2>商品分类管理</h2>
+            <div class="category-form">
+                <label>分类名称
+                    <input type="text" id="categoryName" placeholder="请输入分类名称" />
+                </label>
+                <button id="saveCategory" class="primary">保存分类</button>
+                <button id="resetCategory" class="secondary">重置</button>
+            </div>
+            <div id="categoryList" class="category-list"></div>
+        </section>
+
+        <section class="admin-section">
+            <h2>商品管理</h2>
+            <div class="product-form">
+                <label>名称
+                    <input type="text" id="itemName" placeholder="请输入商品名称" />
+                </label>
+                <label>描述
+                    <input type="text" id="itemDescription" placeholder="请输入商品描述" />
+                </label>
+                <label>价格
+                    <input type="number" id="itemPrice" placeholder="请输入价格" step="0.01" />
+                </label>
+                <label>分类
+                    <select id="itemCategory">
+                        <option value="">请选择分类</option>
+                    </select>
+                </label>
+                <label>商品图片
+                    <input type="file" id="itemImage" accept="image/*" />
+                </label>
+                <div id="imagePreview" class="image-preview"></div>
+                <button id="saveItem" class="primary">保存商品</button>
+                <button id="resetItem" class="secondary">重置</button>
+            </div>
+
+            <div id="productList" class="menu-grid"></div>
+        </section>
+
+        <section class="combo-section">
+            <h2>套餐管理</h2>
+            <div class="combo-form">
+                <label>套餐名称
+                    <input type="text" id="comboName" placeholder="请输入套餐名称" />
+                </label>
+                <label>描述
+                    <input type="text" id="comboDescription" placeholder="请输入套餐描述" />
+                </label>
+                <label>价格
+                    <input type="number" id="comboPrice" placeholder="请输入价格" step="0.01" />
+                </label>
+                <label>折扣
+                    <input type="number" id="comboDiscount" placeholder="折扣比例" step="0.1" value="1.0" min="0.1" max="1.0" />
+                </label>
+                <label>选择商品
+                    <select id="comboItems" multiple size="5">
+                        <!-- 商品选项将动态加载 -->
+                    </select>
+                </label>
+                <button id="saveCombo" class="primary">保存套餐</button>
+                <button id="resetCombo" class="secondary">重置</button>
+            </div>
+
+            <div id="comboList" class="combo-grid"></div>
+        </section>
+
+        <section class="order-section">
+            <h2>订单列表</h2>
+            <div id="merchantOrderList"></div>
+        </section>
+    </main>
+
+    <script src="/static/merchant.js"></script>
+</body>
+</html>

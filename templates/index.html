@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>外卖客户端 - 智能外卖管理平台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <header>
+        <h1>外卖客户端</h1>
+        <p>欢迎来到智能外卖平台，快速点餐，查看订单状态。</p>
+        <nav class="page-nav">
+            <a class="nav-link active" href="/">客户端</a>
+            <a class="nav-link" href="/merchant">商家端</a>
+            <div id="userNav" style="margin-left: auto;">
+                <a id="loginLink" class="nav-link" href="/login">登录</a>
+                <span id="userInfo" style="display: none; color: #e2e8f0; padding: 8px 16px;">
+                    欢迎, <span id="username"></span>
+                    <button id="logoutBtn" class="nav-link" style="background: none; border: none; padding: 0; margin-left: 12px;">退出</button>
+                </span>
+            </div>
+        </nav>
+    </header>
+
+    <div class="container-with-sidebar">
+        <!-- 侧边菜单 -->
+        <aside class="sidebar">
+            <nav class="sidebar-menu">
+                <button class="menu-item active" data-page="menu">
+                    <span class="icon">🍽️</span>
+                    <span>菜单列表</span>
+                </button>
+                <button class="menu-item" data-page="combos">
+                    <span class="icon">🛍️</span>
+                    <span>推荐套餐</span>
+                </button>
+                <button class="menu-item" data-page="cart">
+                    <span class="icon">🛒</span>
+                    <span>购物车</span>
+                </button>
+                <button class="menu-item" data-page="addresses" id="addressMenuBtn" style="display: none;">
+                    <span class="icon">📍</span>
+                    <span>我的地址</span>
+                </button>
+                <button class="menu-item" data-page="orders">
+                    <span class="icon">📋</span>
+                    <span>订单查询</span>
+                </button>
+                <button class="menu-item" data-page="history">
+                    <span class="icon">📜</span>
+                    <span>历史订单</span>
+                </button>
+            </nav>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 菜单页面 -->
+            <section class="page active" id="page-menu">
+                <h2>菜单列表</h2>
+                <div class="category-filter">
+                    <button class="filter-btn active" data-category="all">全部</button>
+                </div>
+                <div id="menuList" class="menu-grid"></div>
+            </section>
+
+            <!-- 推荐套餐页面 -->
+            <section class="page" id="page-combos">
+                <h2>推荐套餐</h2>
+                <div id="comboList" class="combo-grid"></div>
+            </section>
+
+            <!-- 购物车页面 -->
+            <section class="page" id="page-cart">
+                <h2>购物车</h2>
+                <div class="cart-panel">
+                    <div id="cartItems"></div>
+                    <div class="cart-total">总价: ¥<span id="cartTotal">0.00</span></div>
+                </div>
+                <div class="order-info">
+                    <h3>提交订单</h3>
+                    <div class="form-group">
+                        <label>姓名
+                            <input type="text" id="customerName" placeholder="请输入姓名" />
+                        </label>
+                    </div>
+                    <button id="submitOrder" class="primary">确认下单</button>
+                </div>
+            </section>
+
+            <!-- 我的地址页面 -->
+            <section class="page" id="page-addresses">
+                <h2>收货地址</h2>
+                <div class="address-form">
+                    <h3>添加新地址</h3>
+                    <div class="form-group">
+                        <label>收货人名称
+                            <input type="text" id="addressName" placeholder="收货人名称" />
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>详细地址
+                            <input type="text" id="addressDetail" placeholder="详细地址" />
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>电话号码
+                            <input type="tel" id="addressPhone" placeholder="电话号码" />
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="isDefault" /> 设为默认地址
+                        </label>
+                    </div>
+                    <button id="addAddressBtn" class="primary">添加地址</button>
+                </div>
+                <div class="address-list">
+                    <h3>我的地址</h3>
+                    <div id="addressList"></div>
+                </div>
+            </section>
+
+            <!-- 订单查询页面 -->
+            <section class="page" id="page-orders">
+                <h2>当前订单</h2>
+                <div id="orderList"></div>
+            </section>
+
+            <!-- 历史订单页面 -->
+            <section class="page" id="page-history">
+                <h2>历史订单</h2>
+                <div class="history-form">
+                    <label>查询姓名
+                        <input type="text" id="historyCustomer" placeholder="请输入姓名查询历史订单" />
+                    </label>
+                    <button id="searchHistory" class="primary">查询</button>
+                </div>
+                <div id="historyList"></div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
