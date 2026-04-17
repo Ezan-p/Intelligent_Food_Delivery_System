@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI客服助手 - 智能外卖管理平台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <style>
+        .chat-container {
+            max-width: 800px;
+            margin: 20px auto;
+            height: calc(100vh - 140px);
+            display: flex;
+            flex-direction: column;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: #2d7ff9;
+            color: white;
+            padding: 16px;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            background: #f8f9fa;
+        }
+
+        .message {
+            margin-bottom: 16px;
+            display: flex;
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message.bot {
+            justify-content: flex-start;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-content {
+            background: #2d7ff9;
+            color: white;
+        }
+
+        .message.bot .message-content {
+            background: white;
+            color: #333;
+            border: 1px solid #e1e5e9;
+        }
+
+        .chat-input-area {
+            border-top: 1px solid #e1e5e9;
+            padding: 16px;
+            background: white;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .message-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #d1d5db;
+            border-radius: 24px;
+            font-size: 14px;
+            resize: none;
+            min-height: 44px;
+            max-height: 120px;
+            outline: none;
+        }
+
+        .message-input:focus {
+            border-color: #2d7ff9;
+            box-shadow: 0 0 0 3px rgba(45, 127, 249, 0.1);
+        }
+
+        .image-upload {
+            position: relative;
+        }
+
+        .image-upload input[type="file"] {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        .image-upload-btn {
+            width: 44px;
+            height: 44px;
+            border: 1px solid #d1d5db;
+            border-radius: 50%;
+            background: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .image-upload-btn:hover {
+            border-color: #2d7ff9;
+            background: #f0f5ff;
+        }
+
+        .send-btn {
+            width: 44px;
+            height: 44px;
+            border: none;
+            border-radius: 50%;
+            background: #2d7ff9;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .send-btn:hover {
+            background: #1e5fbf;
+        }
+
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .image-preview {
+            margin-top: 8px;
+            max-width: 200px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .typing-indicator {
+            display: none;
+            padding: 12px 16px;
+            background: white;
+            border: 1px solid #e1e5e9;
+            border-radius: 18px;
+            margin-bottom: 16px;
+            color: #666;
+        }
+
+        .typing-dots {
+            display: inline-block;
+        }
+
+        .typing-dots::after {
+            content: '...';
+            animation: typing 1.5s infinite;
+        }
+
+        @keyframes typing {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>AI客服助手</h1>
+        <p>智能外卖平台AI助手，随时为您解答问题</p>
+        <nav class="page-nav">
+            <a class="nav-link" href="/">客户端</a>
+            <a class="nav-link" href="/merchant">商家端</a>
+            <a class="nav-link active" href="/chat">AI客服</a>
+        </nav>
+    </header>
+
+    <main>
+        <div class="chat-container">
+            <div class="chat-header">
+                🤖 AI客服助手 - 在线为您服务
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+                <div class="message bot">
+                    <div class="message-content">
+                        您好！我是智能外卖平台的AI客服助手。请问有什么可以帮助您的吗？
+                    </div>
+                </div>
+            </div>
+
+            <div class="typing-indicator" id="typingIndicator">
+                <span>AI正在思考</span>
+                <span class="typing-dots"></span>
+            </div>
+
+            <div class="chat-input-area">
+                <div class="image-preview" id="imagePreview"></div>
+                <div class="input-group">
+                    <div class="image-upload">
+                        <input type="file" id="imageInput" accept="image/*" />
+                        <button class="image-upload-btn" title="上传图片">
+                            📷
+                        </button>
+                    </div>
+                    <textarea
+                        class="message-input"
+                        id="messageInput"
+                        placeholder="输入您的问题..."
+                        rows="1"
+                    ></textarea>
+                    <button class="send-btn" id="sendBtn" title="发送消息">
+                        ➤
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const chatMessages = document.getElementById('chatMessages');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const imageInput = document.getElementById('imageInput');
+        const imagePreview = document.getElementById('imagePreview');
+        const typingIndicator = document.getElementById('typingIndicator');
+
+        let currentImageData = null;
+        let conversationId = localStorage.getItem('aiConversationId') || '';
+
+        // 自动调整文本框高度
+        messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        // 图片上传预览
+        imageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    currentImageData = e.target.result;
+                    imagePreview.innerHTML = `<img src="${currentImageData}" alt="预览图片" style="max-width: 100%; border-radius: 8px;">`;
+                    imagePreview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            } else {
+                currentImageData = null;
+                imagePreview.style.display = 'none';
+            }
+        });
+
+        // 发送消息
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message && !currentImageData) return;
+
+            // 添加用户消息
+            addMessage(message || '发送了图片', 'user', currentImageData);
+
+            // 清空输入
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+            currentImageData = null;
+            imagePreview.style.display = 'none';
+            imageInput.value = '';
+
+            // 显示打字指示器
+            typingIndicator.style.display = 'block';
+            sendBtn.disabled = true;
+
+            try {
+                const sessionId = localStorage.getItem('sessionId');
+                const headers = { 'Content-Type': 'application/json' };
+                if (sessionId) {
+                    headers['X-Session-ID'] = sessionId;
+                }
+
+                // 发送到服务器
+                const response = await fetch('/api/ai-agent', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        message: message,
+                        image_url: currentImageData,
+                        conversation_id: conversationId
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || '请求失败');
+                }
+
+                // 添加AI回复
+                addMessage(data.response, 'bot');
+                if (data.conversation_id) {
+                    conversationId = data.conversation_id;
+                    localStorage.setItem('aiConversationId', conversationId);
+                }
+                if (data.warning) {
+                    addMessage(`提示：${data.warning}`, 'bot');
+                }
+            } catch (error) {
+                console.error('发送消息失败:', error);
+                addMessage('抱歉，服务暂时不可用，请稍后重试。', 'bot');
+            } finally {
+                // 隐藏打字指示器
+                typingIndicator.style.display = 'none';
+                sendBtn.disabled = false;
+            }
+        }
+
+        // 添加消息到聊天界面
+        function addMessage(content, type, imageData = null) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+
+            let contentHtml = `<div class="message-content">${content}</div>`;
+
+            if (imageData && type === 'user') {
+                contentHtml = `
+                    <div class="message-content">
+                        ${content}
+                        <br><img src="${imageData}" alt="用户图片" style="max-width: 200px; margin-top: 8px; border-radius: 8px;">
+                    </div>
+                `;
+            }
+
+            messageDiv.innerHTML = contentHtml;
+            chatMessages.appendChild(messageDiv);
+
+            // 滚动到底部
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // 事件监听
+        sendBtn.addEventListener('click', sendMessage);
+
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>

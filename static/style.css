@@ -476,6 +476,26 @@ button.secondary {
     margin-left: 8px;
 }
 
+.ai-chat-entry {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 999;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px;
+    border-radius: 999px;
+    background: #2d7ff9;
+    color: #fff;
+    text-decoration: none;
+    box-shadow: 0 10px 24px rgba(45, 127, 249, 0.35);
+}
+
+.ai-chat-entry:hover {
+    background: #1f68d4;
+}
+
 /* 响应式设计 */
 @media (max-width: 1024px) {
     .sidebar {
@@ -593,5 +613,12 @@ button.secondary {
     .address-actions {
         width: 100%;
         margin-top: 8px;
+    }
+
+    .ai-chat-entry {
+        right: 12px;
+        bottom: 12px;
+        padding: 10px 14px;
+        font-size: 13px;
     }
 }

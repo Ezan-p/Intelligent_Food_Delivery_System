@@ -18,7 +18,8 @@
 ├── templates/                  # HTML 模板
 │   ├── index.html              # 客户端页面（带侧边菜单）
 │   ├── merchant.html           # 商家端页面（带侧边菜单）
-│   └── login.html              # 登录/注册页面
+│   ├── login.html              # 登录/注册页面
+│   └── chat.html               # AI客服对话页面
 └── static/                     # 前端静态资源
     ├── app.js                 # 客户端 JavaScript（页面切换、订单、地址管理）
     ├── merchant.js            # 商家端 JavaScript（商品、分类、套餐、订单管理）
@@ -37,6 +38,11 @@
   - 用户管理：`/api/users`
   - 地址管理：`/api/addresses`
   - 仪表板统计：`/api/dashboard`
+  - AI客服对话代理：`/api/ai-agent`（兼容 `/api/chat`）
+- AI 模型集成：
+  - 通过 HTTP API 调用远程模型服务
+  - 文本对话和图片问答功能（由远程服务能力决定）
+  - 远程服务异常时自动回退模拟回复
 - 数据持久化：
   - `load_data()`：从 `data/app_data.json` 读取数据
   - `save_data()`：将数据写入文件
@@ -55,6 +61,11 @@
   - 分类、菜单、套餐、图片上传、订单、统计
 - `templates/login.html`
   - 用户登录与注册
+- `templates/chat.html`
+  - AI客服对话界面
+  - 支持文本对话和图片上传问答
+- `templates/index.html`
+  - 新增悬浮“AI客服”聊天入口（直达 `/chat`）
 
 - `static/app.js`
   - 客户端逻辑
@@ -147,5 +158,4 @@ python3 app.py 5001
 ---
 **项目类型**: 毕业设计
 **技术栈**: Python + Flask + JavaScript + HTML + CSS
-**最后更新**: 2026/4/8
-
+**最后更新**: 2026/4/9
