@@ -33,6 +33,10 @@
                     <span class="icon">🏪</span>
                     <span>店铺列表</span>
                 </button>
+                <button class="menu-item" data-page="favorites">
+                    <span class="icon">❤️</span>
+                    <span>收藏与复购</span>
+                </button>
                 <button class="menu-item" data-page="services">
                     <span class="icon">🤖</span>
                     <span>智能服务</span>
@@ -59,12 +63,38 @@
         <!-- 主内容区 -->
         <main class="main-content">
             <section class="page active" id="page-stores">
-                <h2>商家店铺</h2>
-                <p class="analysis-summary">先选择一家店铺，再查看该店铺下的菜品和套餐。</p>
-                <div class="search-toolbar">
-                    <input type="search" id="storeSearchInput" placeholder="搜索店铺名称、简介、公告" />
+                <div class="customer-home-shell">
+                    <div class="customer-home-top">
+                        <button class="home-address-card" id="homeAddressBtn" type="button">
+                            <span class="home-section-label">当前收货地址</span>
+                            <strong id="currentAddressDisplay">请先登录后选择地址</strong>
+                            <small>点击前往地址管理</small>
+                        </button>
+                        <div class="home-search-wrap">
+                            <input type="search" id="storeSearchInput" placeholder="搜索店铺名称、简介、公告" />
+                        </div>
+                        <div class="home-actions">
+                            <button class="home-icon-btn" id="messageCenterBtn" type="button">消息</button>
+                            <button class="home-icon-btn" id="profileCenterBtn" type="button">个人中心</button>
+                        </div>
+                    </div>
+
+                    <div class="home-category-strip" id="quickCategoryStrip">
+                        <button class="quick-category-chip active" data-store-shortcut="all" type="button">全部</button>
+                        <button class="quick-category-chip" data-store-shortcut="快餐" type="button">快餐</button>
+                        <button class="quick-category-chip" data-store-shortcut="饮品" type="button">饮品</button>
+                        <button class="quick-category-chip" data-store-shortcut="甜品" type="button">甜品</button>
+                        <button class="quick-category-chip" data-store-shortcut="夜宵" type="button">夜宵</button>
+                    </div>
+
+                    <div class="section-header-row">
+                        <div>
+                            <h2>店铺列表</h2>
+                            <p class="analysis-summary">首页展示店铺卡片流，先选店铺，再进入店铺查看菜品与套餐。</p>
+                        </div>
+                    </div>
+                    <div id="storeList" class="store-feed-grid"></div>
                 </div>
-                <div id="storeList" class="service-grid"></div>
             </section>
 
             <section class="page" id="page-store-detail">
@@ -75,24 +105,81 @@
                     </div>
                     <button id="backToStoresBtn" class="secondary">返回店铺列表</button>
                 </div>
-                <div class="store-detail-tabs">
-                    <button class="filter-btn active store-detail-tab" data-store-tab="menu">菜品</button>
-                    <button class="filter-btn store-detail-tab" data-store-tab="combos">套餐</button>
-                </div>
+                <div class="store-detail-layout">
+                    <aside class="store-detail-sidebar">
+                        <div class="store-detail-tabs store-detail-tabs-vertical">
+                            <button class="filter-btn active store-detail-tab" data-store-tab="menu">菜品</button>
+                            <button class="filter-btn store-detail-tab" data-store-tab="combos">套餐</button>
+                            <button class="filter-btn store-detail-tab" data-store-tab="reviews">评价</button>
+                        </div>
+                        <div class="category-filter category-filter-vertical">
+                            <button class="filter-btn active" data-category="all">全部</button>
+                        </div>
+                    </aside>
 
-                <div class="store-detail-panel active" id="store-tab-menu">
-                    <div class="search-toolbar">
-                        <input type="search" id="menuSearchInput" placeholder="搜索当前店铺内的菜品名称、描述" />
-                    </div>
-                    <div class="category-filter">
-                        <button class="filter-btn active" data-category="all">全部</button>
-                    </div>
-                    <div id="menuList" class="menu-grid"></div>
-                </div>
+                    <div class="store-detail-content">
+                        <div class="store-detail-panel active" id="store-tab-menu">
+                            <div class="search-toolbar">
+                                <input type="search" id="menuSearchInput" placeholder="搜索当前店铺内的菜品名称、描述" />
+                            </div>
+                            <div id="menuList" class="menu-grid"></div>
+                        </div>
 
-                <div class="store-detail-panel" id="store-tab-combos">
-                    <div id="selectedComboStoreBanner" class="analysis-summary">尚未选择店铺。</div>
-                    <div id="comboList" class="combo-grid"></div>
+                        <div class="store-detail-panel" id="store-tab-combos">
+                            <div id="selectedComboStoreBanner" class="analysis-summary">尚未选择店铺。</div>
+                            <div id="comboList" class="combo-grid"></div>
+                        </div>
+
+                        <div class="store-detail-panel" id="store-tab-reviews">
+                            <div id="storeReviewSummary" class="analysis-summary">暂无评价数据。</div>
+                            <div id="reviewList"></div>
+                        </div>
+                    </div>
+
+                    <aside class="store-cart-sidebar">
+                        <div class="cart-panel store-cart-panel">
+                            <h3>已选商品</h3>
+                            <div id="cartStoreBanner" class="analysis-summary">请选择店铺后再加购。</div>
+                            <div id="cartItems"></div>
+                            <div class="cart-total">总价: ¥<span id="cartTotal">0.00</span></div>
+                        </div>
+                        <div class="order-info store-submit-panel">
+                            <h3>立即结算</h3>
+                            <div class="form-group">
+                                <label>姓名
+                                    <input type="text" id="customerName" placeholder="请输入姓名" />
+                                </label>
+                            </div>
+                            <button id="submitOrder" class="primary">确认下单</button>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+            <section class="page" id="page-favorites">
+                <h2>收藏与复购</h2>
+                <div class="analysis-summary">集中查看收藏店铺、收藏菜品、最近浏览记录和一键再来一单。</div>
+
+                <div class="favorites-layout">
+                <section class="favorites-panel">
+                    <h3>收藏店铺</h3>
+                    <div id="favoriteStoreList" class="service-grid"></div>
+                </section>
+
+                <section class="favorites-panel">
+                    <h3>收藏菜品</h3>
+                    <div id="favoriteItemList" class="menu-grid"></div>
+                </section>
+
+                <section class="favorites-panel">
+                    <h3>最近浏览记录</h3>
+                    <div id="recentViewList"></div>
+                </section>
+
+                <section class="favorites-panel">
+                    <h3>一键再来一单</h3>
+                    <div id="reorderList"></div>
+                </section>
                 </div>
             </section>
 
@@ -121,19 +208,9 @@
             <!-- 购物车页面 -->
             <section class="page" id="page-cart">
                 <h2>购物车</h2>
-                <div class="cart-panel">
-                    <div id="cartStoreBanner" class="analysis-summary">请选择店铺后再加购。</div>
-                    <div id="cartItems"></div>
-                    <div class="cart-total">总价: ¥<span id="cartTotal">0.00</span></div>
-                </div>
-                <div class="order-info">
-                    <h3>提交订单</h3>
-                    <div class="form-group">
-                        <label>姓名
-                            <input type="text" id="customerName" placeholder="请输入姓名" />
-                        </label>
-                    </div>
-                    <button id="submitOrder" class="primary">确认下单</button>
+                <div class="analysis-panel">
+                    <p class="analysis-summary">购物车已整合到店铺详情页右侧。进入店铺后可边看菜品边结算。</p>
+                    <button class="primary" type="button" onclick="switchPage('store-detail')">前往店铺详情</button>
                 </div>
             </section>
 
@@ -193,6 +270,50 @@
     <a class="ai-chat-entry" href="{{ customer_chat_url }}" aria-label="打开AI客服">
         💬 AI 客服
     </a>
+
+    <button id="floatingCartBtn" class="floating-cart-entry" type="button" aria-label="打开购物车">
+        <span class="floating-cart-icon">🛒</span>
+        <span class="floating-cart-text">
+            <strong id="floatingCartCount">0 件商品</strong>
+            <small>合计 ¥<span id="floatingCartAmount">0.00</span></small>
+        </span>
+    </button>
+
+    <div id="reviewModal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3>订单评价</h3>
+                    <p id="reviewOrderMeta" class="analysis-summary">请填写本次订单评价。</p>
+                </div>
+                <button id="closeReviewModal" class="close-btn" type="button">×</button>
+            </div>
+            <div class="review-form-grid">
+                <label>总体评分
+                    <input type="number" id="reviewRating" min="1" max="5" step="1" placeholder="1-5" />
+                </label>
+                <label>配送评分
+                    <input type="number" id="deliveryRating" min="1" max="5" step="1" placeholder="1-5" />
+                </label>
+                <label>包装评分
+                    <input type="number" id="packagingRating" min="1" max="5" step="1" placeholder="1-5" />
+                </label>
+                <label>口味评分
+                    <input type="number" id="tasteRating" min="1" max="5" step="1" placeholder="1-5" />
+                </label>
+                <label class="store-form-span-2 form-group">文字评价
+                    <textarea id="reviewContent" rows="4" placeholder="请输入文字评价"></textarea>
+                </label>
+                <label class="store-form-span-2 form-group">上传菜品图片
+                    <input type="file" id="reviewImage" accept="image/*" />
+                </label>
+                <div id="reviewImagePreview" class="image-preview store-form-span-2"></div>
+            </div>
+            <div class="form-actions-row">
+                <button id="submitReviewBtn" class="primary">提交评价</button>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/app.js"></script>
 </body>

@@ -220,6 +220,7 @@ DEFAULT_DATA = {
         {"id": 1, "name": "家庭套餐", "description": "适合家庭聚餐", "price": 128.0, "items": [1, 2, 3], "discount": 0.9, "store_id": 1}
     ],
     "orders": [],
+    "reviews": [],
     "users": [],
     "counters": {
         "next_order_id": 1,
@@ -227,7 +228,8 @@ DEFAULT_DATA = {
         "next_category_id": 5,
         "next_combo_id": 2,
         "next_user_id": 1,
-        "next_store_id": 1
+        "next_store_id": 1,
+        "next_review_id": 1
     }
 }
 
@@ -320,6 +322,7 @@ categories = app_data.get('categories', DEFAULT_DATA['categories'])
 menu = app_data.get('menu', DEFAULT_DATA['menu'])
 combos = app_data.get('combos', DEFAULT_DATA['combos'])
 orders = app_data.get('orders', DEFAULT_DATA['orders'])
+reviews = app_data.get('reviews', DEFAULT_DATA['reviews'])
 users = app_data.get('users', DEFAULT_DATA['users'])
 counters = app_data.get('counters', DEFAULT_DATA['counters'])
 
@@ -329,12 +332,13 @@ next_category_id = counters.get('next_category_id', 5)
 next_combo_id = counters.get('next_combo_id', 2)
 next_user_id = counters.get('next_user_id', 1)
 next_store_id = counters.get('next_store_id', 1)
+next_review_id = counters.get('next_review_id', 1)
 
 user_sessions = {}  # session_id -> {"user_id": int, "role": str}
 
 def refresh_runtime_data_from_disk(force=False):
-    global app_data, stores, categories, menu, combos, orders, users, counters
-    global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, next_store_id, DATA_FILE_MTIME
+    global app_data, stores, categories, menu, combos, orders, reviews, users, counters
+    global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, next_store_id, next_review_id, DATA_FILE_MTIME
 
     if not os.path.exists(DATA_FILE):
         return False
@@ -350,6 +354,7 @@ def refresh_runtime_data_from_disk(force=False):
     menu = latest_data.get('menu', DEFAULT_DATA['menu'])
     combos = latest_data.get('combos', DEFAULT_DATA['combos'])
     orders = latest_data.get('orders', DEFAULT_DATA['orders'])
+    reviews = latest_data.get('reviews', DEFAULT_DATA['reviews'])
     users = latest_data.get('users', DEFAULT_DATA['users'])
     counters = latest_data.get('counters', DEFAULT_DATA['counters'])
 
@@ -359,6 +364,7 @@ def refresh_runtime_data_from_disk(force=False):
     next_combo_id = counters.get('next_combo_id', 2)
     next_user_id = counters.get('next_user_id', 1)
     next_store_id = counters.get('next_store_id', 1)
+    next_review_id = counters.get('next_review_id', 1)
     DATA_FILE_MTIME = current_mtime
     return True
 
@@ -503,6 +509,15 @@ def normalize_users():
             changed = True
         if 'admin_note' not in user:
             user['admin_note'] = ''
+            changed = True
+        if 'favorite_store_ids' not in user:
+            user['favorite_store_ids'] = []
+            changed = True
+        if 'favorite_menu_ids' not in user:
+            user['favorite_menu_ids'] = []
+            changed = True
+        if 'recent_views' not in user:
+            user['recent_views'] = []
             changed = True
         if user.get('role') == 'merchant':
             if 'store_name' not in user:
@@ -911,8 +926,57 @@ def serialize_user(user):
         "admin_note": user.get('admin_note', ''),
         "addresses": user.get('addresses', []),
         "created_at": user.get('created_at', ''),
+        "favorite_store_ids": user.get('favorite_store_ids', []),
+        "favorite_menu_ids": user.get('favorite_menu_ids', []),
         "store_id": store.get('id') if store else None,
         "store_name": store.get('name') if store else user.get('store_name', '')
+    }
+
+def get_review_for_order(order_id):
+    return next((review for review in reviews if review.get('order_id') == order_id), None)
+
+def serialize_recent_view(view):
+    view_type = view.get('type')
+    if view_type == 'store':
+        store = get_store_by_id(view.get('store_id'))
+        return {
+            "type": "store",
+            "store_id": view.get('store_id'),
+            "title": store.get('name') if store else view.get('title', '店铺'),
+            "subtitle": store.get('description', '') if store else '',
+            "image": store.get('cover_image_url') if store else '',
+            "viewed_at": view.get('viewed_at', '')
+        }
+    if view_type == 'item':
+        item = next((menu_item for menu_item in menu if menu_item.get('id') == view.get('item_id')), None)
+        store = get_store_by_id(view.get('store_id'))
+        return {
+            "type": "item",
+            "store_id": view.get('store_id'),
+            "item_id": view.get('item_id'),
+            "title": item.get('name') if item else view.get('title', '菜品'),
+            "subtitle": (store.get('name') if store else '') + (f" · {item.get('description', '')}" if item else ''),
+            "image": item.get('image') if item else '',
+            "viewed_at": view.get('viewed_at', '')
+        }
+    return view
+
+def push_recent_view(user, view):
+    recent_views = user.setdefault('recent_views', [])
+    unique_key = (view.get('type'), view.get('store_id'), view.get('item_id'))
+    recent_views[:] = [
+        existing for existing in recent_views
+        if (existing.get('type'), existing.get('store_id'), existing.get('item_id')) != unique_key
+    ]
+    recent_views.insert(0, view)
+    del recent_views[20:]
+
+def serialize_order(order):
+    review = get_review_for_order(order.get('id'))
+    return {
+        **order,
+        "reviewed": bool(review),
+        "review": review
     }
 
 def get_portal_login_context(role):
@@ -957,14 +1021,15 @@ def get_portal_login_context(role):
 
 def update_counters():
     """更新计数器"""
-    global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, next_store_id, counters
+    global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, next_store_id, next_review_id, counters
     counters = {
         'next_order_id': next_order_id,
         'next_menu_id': next_menu_id,
         'next_category_id': next_category_id,
         'next_combo_id': next_combo_id,
         'next_user_id': next_user_id,
-        'next_store_id': next_store_id
+        'next_store_id': next_store_id,
+        'next_review_id': next_review_id
     }
 
 def persist_data():
@@ -976,6 +1041,7 @@ def persist_data():
         'menu': menu,
         'combos': combos,
         'orders': orders,
+        'reviews': reviews,
         'users': users,
         'counters': counters
     }
@@ -1470,15 +1536,15 @@ def get_orders():
 
     if user.get('role') == 'customer':
         target_customer = customer or user.get('username')
-        filtered_orders = [o for o in orders if o['customer'] == target_customer]
+        filtered_orders = [serialize_order(o) for o in orders if o['customer'] == target_customer]
         return jsonify({"orders": filtered_orders})
 
     store_id = get_store_id_for_request(user, allow_all_for_admin=True)
     scoped_orders = filter_records_by_store(orders, store_id)
     if customer:
-        filtered_orders = [o for o in scoped_orders if o['customer'] == customer]
+        filtered_orders = [serialize_order(o) for o in scoped_orders if o['customer'] == customer]
         return jsonify({"orders": filtered_orders})
-    return jsonify({"orders": scoped_orders})
+    return jsonify({"orders": [serialize_order(order) for order in scoped_orders]})
 
 @app.route('/api/order', methods=['POST'])
 def create_order():
@@ -1597,6 +1663,224 @@ def complete_order(order_id):
     persist_data()
     return jsonify({"order": order})
 
+@app.route('/api/favorites', methods=['GET'])
+def get_favorites():
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+
+    favorite_store_ids = user.get('favorite_store_ids', [])
+    favorite_menu_ids = user.get('favorite_menu_ids', [])
+    favorite_stores = [serialize_store(store) for store in stores if store.get('id') in favorite_store_ids]
+    favorite_items = [item for item in menu if item.get('id') in favorite_menu_ids]
+    recent_views = [serialize_recent_view(view) for view in user.get('recent_views', [])]
+    recent_orders = [serialize_order(order) for order in orders if order.get('customer') == user.get('username')]
+    recent_orders = sorted(recent_orders, key=lambda order: order.get('id', 0), reverse=True)[:5]
+
+    return jsonify({
+        "favorite_store_ids": favorite_store_ids,
+        "favorite_menu_ids": favorite_menu_ids,
+        "stores": favorite_stores,
+        "items": favorite_items,
+        "recent_views": recent_views,
+        "recent_orders": recent_orders
+    })
+
+@app.route('/api/favorites/stores/<int:store_id>/toggle', methods=['POST'])
+def toggle_favorite_store(store_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+    if not get_store_by_id(store_id):
+        return jsonify({"error": "店铺不存在。"}), 404
+
+    favorite_store_ids = user.setdefault('favorite_store_ids', [])
+    if store_id in favorite_store_ids:
+        favorite_store_ids.remove(store_id)
+        action = 'removed'
+    else:
+        favorite_store_ids.append(store_id)
+        action = 'added'
+    persist_data()
+    return jsonify({"success": True, "action": action, "favorite_store_ids": favorite_store_ids})
+
+@app.route('/api/favorites/menu/<int:item_id>/toggle', methods=['POST'])
+def toggle_favorite_menu(item_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+    item = next((menu_item for menu_item in menu if menu_item.get('id') == item_id), None)
+    if not item:
+        return jsonify({"error": "菜品不存在。"}), 404
+
+    favorite_menu_ids = user.setdefault('favorite_menu_ids', [])
+    if item_id in favorite_menu_ids:
+        favorite_menu_ids.remove(item_id)
+        action = 'removed'
+    else:
+        favorite_menu_ids.append(item_id)
+        action = 'added'
+    persist_data()
+    return jsonify({"success": True, "action": action, "favorite_menu_ids": favorite_menu_ids})
+
+@app.route('/api/recent-views', methods=['POST'])
+def add_recent_view():
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+
+    data = request.get_json() or {}
+    view_type = data.get('type')
+    store_id = data.get('store_id')
+    item_id = data.get('item_id')
+
+    if view_type not in ('store', 'item'):
+        return jsonify({"error": "浏览记录类型不合法。"}), 400
+    if not store_id:
+        return jsonify({"error": "缺少店铺信息。"}), 400
+
+    view = {
+        "type": view_type,
+        "store_id": int(store_id),
+        "item_id": int(item_id) if item_id else None,
+        "viewed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    push_recent_view(user, view)
+    persist_data()
+    return jsonify({"success": True})
+
+@app.route('/api/orders/<int:order_id>/reorder', methods=['POST'])
+def reorder_order(order_id):
+    global next_order_id
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+
+    order = next((item for item in orders if item.get('id') == order_id and item.get('customer') == user.get('username')), None)
+    if not order:
+        return jsonify({"error": "订单不存在。"}), 404
+
+    store_id = order.get('store_id')
+    store = get_store_by_id(store_id)
+    if not store or store.get('status') != 'active':
+        return jsonify({"error": "当前店铺不可下单。"}), 400
+
+    recreated_items = []
+    total = 0.0
+    for order_item in order.get('items', []):
+        if order_item.get('type') == 'item':
+            menu_item = next((item for item in menu if item.get('id') == order_item.get('id') and item.get('store_id') == store_id), None)
+            if not menu_item:
+                continue
+            quantity = max(1, int(order_item.get('quantity', 1)))
+            subtotal = float(menu_item.get('price', 0)) * quantity
+            recreated_items.append({
+                "id": menu_item['id'],
+                "name": menu_item['name'],
+                "price": menu_item['price'],
+                "quantity": quantity,
+                "subtotal": round(subtotal, 2),
+                "type": "item"
+            })
+            total += subtotal
+        elif order_item.get('type') == 'combo':
+            combo = next((item for item in combos if item.get('id') == order_item.get('id') and item.get('store_id') == store_id), None)
+            if not combo:
+                continue
+            subtotal = float(combo.get('price', 0)) * float(combo.get('discount', 1))
+            recreated_items.append({
+                "id": combo['id'],
+                "name": combo['name'],
+                "price": combo['price'],
+                "quantity": 1,
+                "subtotal": round(subtotal, 2),
+                "type": "combo",
+                "discount": combo.get('discount', 1)
+            })
+            total += subtotal
+
+    if not recreated_items:
+        return jsonify({"error": "原订单商品已下架，无法复购。"}), 400
+
+    new_order = {
+        "id": next_order_id,
+        "customer": user.get('username'),
+        "store_id": store_id,
+        "store_name": store.get('name'),
+        "items": recreated_items,
+        "total": round(total, 2),
+        "status": "已接单",
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "source_order_id": order_id
+    }
+    orders.append(new_order)
+    next_order_id += 1
+    persist_data()
+    return jsonify({"order": serialize_order(new_order)})
+
+@app.route('/api/reviews', methods=['GET'])
+def get_reviews():
+    store_id = request.args.get('store_id', type=int)
+    order_id = request.args.get('order_id', type=int)
+    customer = request.args.get('customer', '').strip()
+    filtered_reviews = reviews
+    if store_id:
+        filtered_reviews = [review for review in filtered_reviews if review.get('store_id') == store_id]
+    if order_id:
+        filtered_reviews = [review for review in filtered_reviews if review.get('order_id') == order_id]
+    if customer:
+        filtered_reviews = [review for review in filtered_reviews if review.get('customer') == customer]
+    filtered_reviews = sorted(filtered_reviews, key=lambda review: review.get('id', 0), reverse=True)
+    return jsonify({"reviews": filtered_reviews})
+
+@app.route('/api/orders/<int:order_id>/review', methods=['POST'])
+def create_review(order_id):
+    global next_review_id
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+
+    order = next((item for item in orders if item.get('id') == order_id and item.get('customer') == user.get('username')), None)
+    if not order:
+        return jsonify({"error": "订单不存在。"}), 404
+    if order.get('status') != '已完成':
+        return jsonify({"error": "仅已完成订单可评价。"}), 400
+    if get_review_for_order(order_id):
+        return jsonify({"error": "该订单已评价。"}), 400
+
+    data = request.get_json() or {}
+    try:
+        rating = float(data.get('rating', 0))
+        delivery_rating = float(data.get('delivery_rating', 0))
+        packaging_rating = float(data.get('packaging_rating', 0))
+        taste_rating = float(data.get('taste_rating', 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "评分必须是数字。"}), 400
+
+    content = str(data.get('content', '')).strip()
+    image = data.get('image')
+    if rating <= 0:
+        return jsonify({"error": "请填写总体评分。"}), 400
+
+    review = {
+        "id": next_review_id,
+        "order_id": order_id,
+        "customer": user.get('username'),
+        "store_id": order.get('store_id'),
+        "store_name": order.get('store_name', ''),
+        "rating": rating,
+        "delivery_rating": delivery_rating,
+        "packaging_rating": packaging_rating,
+        "taste_rating": taste_rating,
+        "content": content,
+        "image": image,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    reviews.append(review)
+    next_review_id += 1
+    persist_data()
+    return jsonify({"review": review}), 201
+
 # 用户管理
 
 @app.route('/api/users/register', methods=['POST'])
@@ -1631,6 +1915,9 @@ def register_user():
         "risk_status": "normal",
         "admin_note": "",
         "addresses": [],
+        "favorite_store_ids": [],
+        "favorite_menu_ids": [],
+        "recent_views": [],
         "store_name": f"{username}店铺" if role == 'merchant' else '',
         "store_description": '',
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")

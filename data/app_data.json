@@ -279,8 +279,63 @@
       "total": 50.0,
       "status": "已接单",
       "created_at": "2026-04-17 21:19:43"
+    },
+    {
+      "id": 2,
+      "customer": "Ezan",
+      "store_id": 1,
+      "store_name": "川味小馆",
+      "items": [
+        {
+          "id": 1,
+          "name": "麻辣香锅",
+          "price": 36.0,
+          "quantity": 1,
+          "subtotal": 36.0,
+          "type": "item"
+        },
+        {
+          "id": 2,
+          "name": "宫保鸡丁",
+          "price": 28.0,
+          "quantity": 1,
+          "subtotal": 28.0,
+          "type": "item"
+        }
+      ],
+      "total": 64.0,
+      "status": "已完成",
+      "created_at": "2026-04-18 15:40:58"
+    },
+    {
+      "id": 3,
+      "customer": "Ezan",
+      "store_id": 1,
+      "store_name": "川味小馆",
+      "items": [
+        {
+          "id": 2,
+          "name": "宫保鸡丁",
+          "price": 28.0,
+          "quantity": 1,
+          "subtotal": 28.0,
+          "type": "item"
+        },
+        {
+          "id": 1,
+          "name": "麻辣香锅",
+          "price": 36.0,
+          "quantity": 1,
+          "subtotal": 36.0,
+          "type": "item"
+        }
+      ],
+      "total": 64.0,
+      "status": "已取消",
+      "created_at": "2026-04-18 16:06:07"
     }
   ],
+  "reviews": [],
   "users": [
     {
       "id": 1,
@@ -292,7 +347,29 @@
       "role": "customer",
       "account_status": "active",
       "risk_status": "normal",
-      "admin_note": ""
+      "admin_note": "",
+      "favorite_store_ids": [],
+      "favorite_menu_ids": [],
+      "recent_views": [
+        {
+          "type": "store",
+          "store_id": 1,
+          "item_id": null,
+          "viewed_at": "2026-04-18 16:10:34"
+        },
+        {
+          "type": "store",
+          "store_id": 2,
+          "item_id": null,
+          "viewed_at": "2026-04-18 15:58:37"
+        },
+        {
+          "type": "item",
+          "store_id": 1,
+          "item_id": 3,
+          "viewed_at": "2026-04-18 15:40:42"
+        }
+      ]
     },
     {
       "id": 2,
@@ -307,7 +384,10 @@
       "store_id": 1,
       "account_status": "active",
       "risk_status": "normal",
-      "admin_note": ""
+      "admin_note": "",
+      "favorite_store_ids": [],
+      "favorite_menu_ids": [],
+      "recent_views": []
     },
     {
       "id": 3,
@@ -319,7 +399,10 @@
       "created_at": "2026-04-17 17:13:47",
       "account_status": "active",
       "risk_status": "normal",
-      "admin_note": ""
+      "admin_note": "",
+      "favorite_store_ids": [],
+      "favorite_menu_ids": [],
+      "recent_views": []
     },
     {
       "id": 4,
@@ -331,7 +414,10 @@
       "created_at": "2026-04-17 17:23:28",
       "account_status": "active",
       "risk_status": "normal",
-      "admin_note": ""
+      "admin_note": "",
+      "favorite_store_ids": [],
+      "favorite_menu_ids": [],
+      "recent_views": []
     },
     {
       "id": 5,
@@ -346,7 +432,10 @@
       "store_id": 2,
       "account_status": "active",
       "risk_status": "normal",
-      "admin_note": ""
+      "admin_note": "",
+      "favorite_store_ids": [],
+      "favorite_menu_ids": [],
+      "recent_views": []
     },
     {
       "id": 6,
@@ -358,7 +447,10 @@
       "created_at": "2026-04-17 17:53:15",
       "account_status": "active",
       "risk_status": "normal",
-      "admin_note": ""
+      "admin_note": "",
+      "favorite_store_ids": [],
+      "favorite_menu_ids": [],
+      "recent_views": []
     },
     {
       "id": 7,
@@ -373,7 +465,10 @@
       "store_id": 3,
       "account_status": "active",
       "risk_status": "normal",
-      "admin_note": ""
+      "admin_note": "",
+      "favorite_store_ids": [],
+      "favorite_menu_ids": [],
+      "recent_views": []
     },
     {
       "id": 8,
@@ -387,7 +482,10 @@
       "created_at": "2026-04-17 18:11:03",
       "account_status": "active",
       "risk_status": "normal",
-      "admin_note": ""
+      "admin_note": "",
+      "favorite_store_ids": [],
+      "favorite_menu_ids": [],
+      "recent_views": []
     },
     {
       "id": 9,
@@ -401,15 +499,19 @@
       "created_at": "2026-04-17 19:10:50",
       "account_status": "active",
       "risk_status": "normal",
-      "admin_note": ""
+      "admin_note": "",
+      "favorite_store_ids": [],
+      "favorite_menu_ids": [],
+      "recent_views": []
     }
   ],
   "counters": {
-    "next_order_id": 2,
+    "next_order_id": 4,
     "next_menu_id": 13,
     "next_category_id": 11,
     "next_combo_id": 4,
     "next_user_id": 10,
-    "next_store_id": 4
+    "next_store_id": 4,
+    "next_review_id": 1
   }
 }

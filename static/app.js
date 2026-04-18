@@ -12,11 +12,36 @@ const categoryFilter = document.querySelector('.category-filter');
 const storeList = document.getElementById('storeList');
 const storeSearchInput = document.getElementById('storeSearchInput');
 const menuSearchInput = document.getElementById('menuSearchInput');
+const homeAddressBtn = document.getElementById('homeAddressBtn');
+const currentAddressDisplay = document.getElementById('currentAddressDisplay');
+const messageCenterBtn = document.getElementById('messageCenterBtn');
+const profileCenterBtn = document.getElementById('profileCenterBtn');
+const quickCategoryStrip = document.getElementById('quickCategoryStrip');
+const floatingCartBtn = document.getElementById('floatingCartBtn');
+const floatingCartCount = document.getElementById('floatingCartCount');
+const floatingCartAmount = document.getElementById('floatingCartAmount');
 const selectedStoreBanner = document.getElementById('selectedStoreBanner');
 const selectedComboStoreBanner = document.getElementById('selectedComboStoreBanner');
 const cartStoreBanner = document.getElementById('cartStoreBanner');
 const backToStoresBtn = document.getElementById('backToStoresBtn');
 const storeDetailTabs = document.querySelectorAll('.store-detail-tab');
+const reviewList = document.getElementById('reviewList');
+const storeReviewSummary = document.getElementById('storeReviewSummary');
+const favoriteStoreList = document.getElementById('favoriteStoreList');
+const favoriteItemList = document.getElementById('favoriteItemList');
+const recentViewList = document.getElementById('recentViewList');
+const reorderList = document.getElementById('reorderList');
+const reviewModal = document.getElementById('reviewModal');
+const closeReviewModal = document.getElementById('closeReviewModal');
+const reviewOrderMeta = document.getElementById('reviewOrderMeta');
+const reviewRating = document.getElementById('reviewRating');
+const deliveryRating = document.getElementById('deliveryRating');
+const packagingRating = document.getElementById('packagingRating');
+const tasteRating = document.getElementById('tasteRating');
+const reviewContent = document.getElementById('reviewContent');
+const reviewImage = document.getElementById('reviewImage');
+const reviewImagePreview = document.getElementById('reviewImagePreview');
+const submitReviewBtn = document.getElementById('submitReviewBtn');
 
 const loginLink = document.getElementById('loginLink');
 const userInfo = document.getElementById('userInfo');
@@ -45,9 +70,18 @@ let sessionId = null;
 let selectedStore = null;
 let realtimeRefreshTimer = null;
 let storeSearchKeyword = '';
+let storeShortcutKeyword = 'all';
 let menuSearchKeyword = '';
 let currentStoreTab = 'menu';
 let toastTimer = null;
+let favoriteStoreIds = [];
+let favoriteMenuIds = [];
+let favoriteItems = [];
+let recentViews = [];
+let reorderOrders = [];
+let currentStoreReviews = [];
+let currentReviewOrderId = null;
+let reviewImageData = null;
 
 function authHeaders() {
     return sessionId ? { 'X-Session-ID': sessionId } : {};
@@ -83,10 +117,55 @@ function showStoreTab(tabName) {
     document.querySelectorAll('.store-detail-panel').forEach(panel => {
         panel.classList.toggle('active', panel.id === `store-tab-${tabName}`);
     });
+    if (categoryFilter) {
+        categoryFilter.style.display = tabName === 'menu' ? 'flex' : 'none';
+    }
 }
 
 function formatPrice(price) {
     return Number(price).toFixed(2);
+}
+
+function getStoreEta(store) {
+    const base = 22 + Number(store.delivery_fee || 0) * 3 + (Number(store.monthly_sales || 0) > 80 ? 6 : 0);
+    return `${Math.max(18, Math.round(base))}-${Math.max(28, Math.round(base + 10))} 分钟`;
+}
+
+function getStoreTags(store) {
+    const text = [store.name, store.description, store.announcement].join(' ').toLowerCase();
+    const tags = [];
+    if (text.includes('轻食') || text.includes('沙拉')) tags.push('轻食');
+    if (text.includes('奶茶') || text.includes('果饮') || text.includes('饮')) tags.push('饮品');
+    if (text.includes('甜') || text.includes('蛋糕') || text.includes('面包')) tags.push('甜品');
+    if (text.includes('夜') || text.includes('麻辣') || text.includes('烧烤') || text.includes('龙虾')) tags.push('夜宵');
+    if (text.includes('盖饭') || text.includes('套餐') || text.includes('快')) tags.push('快餐');
+    if (store.business_status && !tags.includes(store.business_status)) tags.push(store.business_status);
+    if (Number(store.rating || 0) >= 4.8) tags.push('高评分');
+    return [...new Set(tags)].slice(0, 4);
+}
+
+function updateCurrentAddressDisplay() {
+    if (!currentUser || !Array.isArray(currentUser.addresses) || !currentUser.addresses.length) {
+        currentAddressDisplay.textContent = '请先登录后选择地址';
+        return;
+    }
+    const defaultAddress = currentUser.addresses.find(item => item.is_default) || currentUser.addresses[0];
+    currentAddressDisplay.textContent = defaultAddress ? `${defaultAddress.name} · ${defaultAddress.address}` : '请前往地址管理完善信息';
+}
+
+function syncQuickCategoryState() {
+    if (!quickCategoryStrip) return;
+    quickCategoryStrip.querySelectorAll('.quick-category-chip').forEach(button => {
+        button.classList.toggle('active', button.dataset.storeShortcut === storeShortcutKeyword);
+    });
+}
+
+function updateFloatingCart() {
+    const count = cart.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const amount = cart.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
+    floatingCartCount.textContent = `${count} 件商品`;
+    floatingCartAmount.textContent = formatPrice(amount);
+    floatingCartBtn.classList.toggle('has-items', count > 0);
 }
 
 function showToast(message) {
@@ -107,6 +186,27 @@ function showToast(message) {
     toastTimer = setTimeout(() => {
         toast.classList.remove('visible');
     }, 1800);
+}
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        if (!file) {
+            resolve(null);
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = event => resolve(event.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function isFavoriteStore(storeId) {
+    return favoriteStoreIds.includes(storeId);
+}
+
+function isFavoriteItem(itemId) {
+    return favoriteMenuIds.includes(itemId);
 }
 
 function saveSelectedStore() {
@@ -212,7 +312,7 @@ function loadStores(isSilent = false) {
 
 function renderStoreList() {
     const keyword = storeSearchKeyword.trim().toLowerCase();
-    const filteredStores = keyword
+    let filteredStores = keyword
         ? storeData.filter(store => {
             const haystack = [
                 store.name,
@@ -224,30 +324,45 @@ function renderStoreList() {
         })
         : storeData;
 
+    if (storeShortcutKeyword !== 'all') {
+        const shortcut = storeShortcutKeyword.toLowerCase();
+        filteredStores = filteredStores.filter(store => {
+            const haystack = [store.name, store.description, store.announcement, ...getStoreTags(store)].join(' ').toLowerCase();
+            return haystack.includes(shortcut);
+        });
+    }
+
     storeList.innerHTML = filteredStores.length
         ? filteredStores.map(store => `
-            <button class="service-card ${selectedStore && selectedStore.id === store.id ? 'selected-store-card' : ''}" onclick="selectStore(${store.id})">
-                <div class="store-cover">
+            <article class="store-feed-card ${selectedStore && selectedStore.id === store.id ? 'selected-store-card' : ''}">
+                <div class="store-feed-media">
                     <img src="${store.cover_image_url}" alt="${store.name} 封面" />
+                    <span class="store-eta-badge">预计 ${getStoreEta(store)}</span>
                 </div>
-                <div class="store-card-header">
+                <div class="store-feed-header">
                     <img class="store-avatar" src="${store.avatar_url}" alt="${store.name} 头像" />
                     <div>
                         <span class="service-tag">${store.business_status || '营业中'}</span>
                         <h3>${store.name}</h3>
+                        <small>${store.business_hours || '09:00-22:00'}</small>
                     </div>
                 </div>
                 <p>${store.description || '暂无店铺介绍。'}</p>
-                <div class="store-meta-grid">
-                    <span>营业时间：${store.business_hours || '09:00-22:00'}</span>
-                    <span>评分：${Number(store.rating || 0).toFixed(1)}</span>
-                    <span>月售：${store.monthly_sales || 0}</span>
-                    <span>配送费：¥${formatPrice(store.delivery_fee || 0)}</span>
-                    <span>起送价：¥${formatPrice(store.min_order_amount || 0)}</span>
+                <div class="store-feed-meta">
+                    <span>评分 ${Number(store.rating || 0).toFixed(1)}</span>
+                    <span>月售 ${store.monthly_sales || 0}</span>
+                    <span>配送费 ¥${formatPrice(store.delivery_fee || 0)}</span>
+                    <span>起送 ¥${formatPrice(store.min_order_amount || 0)}</span>
+                </div>
+                <div class="store-tag-row">
+                    ${getStoreTags(store).map(tag => `<span class="store-tag-chip">${tag}</span>`).join('')}
                 </div>
                 <div class="store-announcement">${store.announcement || '暂无公告'}</div>
-                <span class="service-entry">${selectedStore && selectedStore.id === store.id ? '当前已选' : '进入店铺'}</span>
-            </button>`).join('')
+                <div class="form-actions-row">
+                    <button class="primary" onclick="selectStore(${store.id})">进入店铺</button>
+                    <button class="secondary" onclick="toggleFavoriteStore(${store.id})">${isFavoriteStore(store.id) ? '取消收藏' : '收藏店铺'}</button>
+                </div>
+            </article>`).join('')
         : `<p>${keyword ? '未找到符合条件的店铺。' : '当前暂无可用店铺。'}</p>`;
 }
 
@@ -265,6 +380,8 @@ function selectStore(storeId) {
     renderStoreList();
     renderSelectedStoreState();
     loadStoreData();
+    loadReviews();
+    recordRecentView({ type: 'store', store_id: store.id });
     showStoreTab('menu');
     switchPage('store-detail');
 }
@@ -356,7 +473,11 @@ function renderMenu() {
                     <div class="menu-card-footer">
                         <span class="price">¥${formatPrice(item.price)}</span>
                         <span class="category">${category ? category.name : '未分类'}</span>
-                        <button class="primary" onclick="addToCart(${item.id})">加入购物车</button>
+                        <div class="card-actions">
+                            <button class="secondary" onclick="showItemDetail(${item.id})">查看详情</button>
+                            <button class="secondary" onclick="toggleFavoriteItem(${item.id})">${isFavoriteItem(item.id) ? '取消收藏' : '收藏菜品'}</button>
+                            <button class="primary" onclick="addToCart(${item.id})">加入购物车</button>
+                        </div>
                     </div>
                 </div>`;
         }).join('')
@@ -404,6 +525,231 @@ function renderCombos() {
         : '<p>当前店铺暂无套餐。</p>';
 }
 
+function loadFavorites() {
+    if (!sessionId) {
+        favoriteStoreList.innerHTML = '<p>登录后可查看收藏店铺。</p>';
+        favoriteItemList.innerHTML = '<p>登录后可查看收藏菜品。</p>';
+        recentViewList.innerHTML = '<p>登录后可查看最近浏览记录。</p>';
+        reorderList.innerHTML = '<p>登录后可使用一键再来一单。</p>';
+        return;
+    }
+
+    apiFetch('/api/favorites', { headers: authHeaders() })
+        .then(response => response.json())
+        .then(data => {
+            favoriteStoreIds = data.favorite_store_ids || [];
+            favoriteMenuIds = data.favorite_menu_ids || [];
+            favoriteItems = data.items || [];
+            recentViews = data.recent_views || [];
+            reorderOrders = data.recent_orders || [];
+            renderStoreList();
+            renderFavoriteStores(data.stores || []);
+            renderFavoriteItems(favoriteItems);
+            renderRecentViews();
+            renderReorderOrders();
+        });
+}
+
+function renderFavoriteStores(stores) {
+    favoriteStoreList.innerHTML = stores.length
+        ? stores.map(store => `
+            <article class="service-card">
+                <div class="store-cover">
+                    <img src="${store.cover_image_url}" alt="${store.name} 封面" />
+                </div>
+                <div class="store-card-header">
+                    <img class="store-avatar" src="${store.avatar_url}" alt="${store.name} 头像" />
+                    <div>
+                        <span class="service-tag">${store.business_status || '营业中'}</span>
+                        <h3>${store.name}</h3>
+                    </div>
+                </div>
+                <p>${store.description || '暂无店铺介绍。'}</p>
+                <div class="form-actions-row">
+                    <button class="primary" onclick="selectStore(${store.id})">进入店铺</button>
+                    <button class="secondary" onclick="toggleFavoriteStore(${store.id})">取消收藏</button>
+                </div>
+            </article>`).join('')
+        : '<p>暂无收藏店铺。</p>';
+}
+
+function renderFavoriteItems(items) {
+    favoriteItemList.innerHTML = items.length
+        ? items.map(item => `
+            <div class="menu-card">
+                ${item.image ? `<div class="card-image"><img src="${item.image}" alt="${item.name}" /></div>` : '<div class="card-image no-image">暂无图片</div>'}
+                <h3>${item.name}</h3>
+                <p>${item.description || '暂无描述'}</p>
+                <div class="menu-card-footer">
+                    <span class="price">¥${formatPrice(item.price)}</span>
+                    <div class="card-actions">
+                        <button class="secondary" onclick="showFavoriteItem(${item.id})">查看</button>
+                        <button class="secondary" onclick="toggleFavoriteItem(${item.id})">取消收藏</button>
+                    </div>
+                </div>
+            </div>`).join('')
+        : '<p>暂无收藏菜品。</p>';
+}
+
+function renderRecentViews() {
+    recentViewList.innerHTML = recentViews.length
+        ? recentViews.map(view => `
+            <div class="order-card">
+                <h4>${view.title || '浏览记录'}</h4>
+                <small>${view.subtitle || '暂无附加信息'} · 浏览时间: ${view.viewed_at || '未知'}</small>
+                <div class="form-actions-row">
+                    ${view.type === 'store'
+                        ? `<button class="primary" onclick="selectStore(${view.store_id})">进入店铺</button>`
+                        : `<button class="primary" onclick="showFavoriteItem(${view.item_id})">查看菜品</button>`}
+                </div>
+            </div>`).join('')
+        : '<p>暂无最近浏览记录。</p>';
+}
+
+function renderReorderOrders() {
+    reorderList.innerHTML = reorderOrders.length
+        ? reorderOrders.map(order => `
+            <div class="order-card">
+                <h4>订单 #${order.id} - ${order.store_name || '未知店铺'}</h4>
+                <small>状态: ${order.status} · 下单时间: ${order.created_at}</small>
+                <div class="order-summary">总价：¥${formatPrice(order.total)}</div>
+                <div class="form-actions-row">
+                    <button class="primary" onclick="reorderOrder(${order.id})">一键再来一单</button>
+                </div>
+            </div>`).join('')
+        : '<p>暂无可复购订单。</p>';
+}
+
+function recordRecentView(payload) {
+    if (!sessionId) return;
+    fetch('/api/recent-views', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(payload)
+    }).then(() => loadFavorites());
+}
+
+function showItemDetail(itemId) {
+    const item = menuData.find(menuItem => menuItem.id === itemId);
+    if (!item) return;
+    recordRecentView({ type: 'item', store_id: selectedStore.id, item_id: item.id });
+    alert(`${item.name}\n\n${item.description || '暂无描述'}\n价格：¥${formatPrice(item.price)}`);
+}
+
+function showFavoriteItem(itemId) {
+    const item = favoriteItems.find(menuItem => menuItem.id === itemId) || menuData.find(menuItem => menuItem.id === itemId);
+    if (!item) return;
+    if (item.store_id) {
+        selectStore(item.store_id);
+        showStoreTab('menu');
+    }
+}
+
+function reorderOrder(orderId) {
+    if (!sessionId) {
+        alert('请先登录客户端账户。');
+        return;
+    }
+    fetch(`/api/orders/${orderId}/reorder`, {
+        method: 'POST',
+        headers: authHeaders()
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            const order = data.order;
+            const store = storeData.find(item => item.id === order.store_id);
+            if (store) {
+                selectedStore = store;
+                saveSelectedStore();
+                renderSelectedStoreState();
+                loadStoreData();
+            }
+            loadOrders();
+            searchHistoryHandler();
+            loadFavorites();
+            switchPage('orders');
+            showToast('已成功再来一单');
+        });
+}
+
+function toggleFavoriteStore(storeId) {
+    if (!sessionId) {
+        alert('请先登录客户端账户。');
+        return;
+    }
+    fetch(`/api/favorites/stores/${storeId}/toggle`, {
+        method: 'POST',
+        headers: authHeaders()
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            favoriteStoreIds = data.favorite_store_ids || [];
+            loadFavorites();
+            showToast(data.action === 'added' ? '店铺已收藏' : '已取消收藏店铺');
+        });
+}
+
+function toggleFavoriteItem(itemId) {
+    if (!sessionId) {
+        alert('请先登录客户端账户。');
+        return;
+    }
+    fetch(`/api/favorites/menu/${itemId}/toggle`, {
+        method: 'POST',
+        headers: authHeaders()
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            favoriteMenuIds = data.favorite_menu_ids || [];
+            loadFavorites();
+            renderMenu();
+            showToast(data.action === 'added' ? '菜品已收藏' : '已取消收藏菜品');
+        });
+}
+
+function loadReviews() {
+    if (!selectedStore) {
+        reviewList.innerHTML = '<p>请选择店铺后查看评价。</p>';
+        storeReviewSummary.textContent = '暂无评价数据。';
+        return;
+    }
+    apiFetch(`/api/reviews?store_id=${selectedStore.id}`)
+        .then(response => response.json())
+        .then(data => {
+            currentStoreReviews = data.reviews || [];
+            renderReviews();
+        });
+}
+
+function renderReviews() {
+    if (!currentStoreReviews.length) {
+        storeReviewSummary.textContent = '当前店铺暂无评价。';
+        reviewList.innerHTML = '<p>当前店铺暂无评价，欢迎完成订单后进行评价。</p>';
+        return;
+    }
+    const avgRating = currentStoreReviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / currentStoreReviews.length;
+    storeReviewSummary.textContent = `累计 ${currentStoreReviews.length} 条评价，平均评分 ${avgRating.toFixed(1)}`;
+    reviewList.innerHTML = currentStoreReviews.map(review => `
+        <div class="order-card">
+            <h4>${review.customer}</h4>
+            <small>综合评分 ${Number(review.rating || 0).toFixed(1)} · 配送 ${Number(review.delivery_rating || 0).toFixed(1)} · 包装 ${Number(review.packaging_rating || 0).toFixed(1)} · 口味 ${Number(review.taste_rating || 0).toFixed(1)}</small>
+            <div class="analysis-summary">${review.content || '用户未填写文字评价。'}</div>
+            ${review.image ? `<div class="card-image"><img src="${review.image}" alt="评价图片" /></div>` : ''}
+        </div>`).join('');
+}
+
 function addComboToCart(comboId) {
     if (!selectedStore) {
         alert('请先选择店铺。');
@@ -448,6 +794,7 @@ function addToCart(id) {
 
 function renderCart() {
     renderSelectedStoreState();
+    updateFloatingCart();
     if (!cart.length) {
         cartItems.innerHTML = '<p>购物车为空。</p>';
         cartTotal.textContent = '0.00';
@@ -539,7 +886,12 @@ function renderOrders(orders) {
                 ${order.items.map(item => `<li>${item.name} × ${item.quantity} = ¥${formatPrice(item.subtotal)}</li>`).join('')}
             </ul>
             <div class="order-summary">总价：¥${formatPrice(order.total)}</div>
-            ${order.status === '已接单' ? `<button class="secondary" onclick="cancelOrder(${order.id})">取消订单</button>` : ''}
+            <div class="form-actions-row">
+                ${order.status === '已接单' ? `<button class="secondary" onclick="cancelOrder(${order.id})">取消订单</button>` : ''}
+                ${(order.status === '已完成' || order.status === '已送达') ? `<button class="secondary" onclick="reorderOrder(${order.id})">一键再来一单</button>` : ''}
+                ${order.status === '已完成' && !order.reviewed ? `<button class="primary" onclick="openReviewModal(${order.id}, '${(order.store_name || '').replace(/'/g, "\\'")}')">去评价</button>` : ''}
+                ${order.reviewed ? '<span class="service-tag">已评价</span>' : ''}
+            </div>
         </div>`).join('');
 }
 
@@ -572,7 +924,73 @@ function renderHistory(orders) {
                 ${order.items.map(item => `<li>${item.name} × ${item.quantity} = ¥${formatPrice(item.subtotal)}</li>`).join('')}
             </ul>
             <div class="order-summary">总价：¥${formatPrice(order.total)}</div>
+            <div class="form-actions-row">
+                ${(order.status === '已完成' || order.status === '已送达') ? `<button class="secondary" onclick="reorderOrder(${order.id})">一键再来一单</button>` : ''}
+                ${order.status === '已完成' && !order.reviewed ? `<button class="primary" onclick="openReviewModal(${order.id}, '${(order.store_name || '').replace(/'/g, "\\'")}')">去评价</button>` : ''}
+                ${order.reviewed ? '<span class="service-tag">已评价</span>' : ''}
+            </div>
         </div>`).join('');
+}
+
+function resetReviewForm() {
+    currentReviewOrderId = null;
+    reviewRating.value = '';
+    deliveryRating.value = '';
+    packagingRating.value = '';
+    tasteRating.value = '';
+    reviewContent.value = '';
+    reviewImage.value = '';
+    reviewImageData = null;
+    reviewImagePreview.innerHTML = '';
+}
+
+function openReviewModal(orderId, storeName = '') {
+    resetReviewForm();
+    currentReviewOrderId = orderId;
+    reviewOrderMeta.textContent = `订单 #${orderId}${storeName ? ` · ${storeName}` : ''}`;
+    reviewModal.style.display = 'flex';
+}
+
+function closeReviewDialog() {
+    reviewModal.style.display = 'none';
+    resetReviewForm();
+}
+
+function submitReviewHandler() {
+    if (!sessionId || !currentReviewOrderId) return;
+
+    const payload = {
+        rating: Number(reviewRating.value),
+        delivery_rating: Number(deliveryRating.value),
+        packaging_rating: Number(packagingRating.value),
+        taste_rating: Number(tasteRating.value),
+        content: reviewContent.value.trim(),
+        image: reviewImageData
+    };
+
+    if (![payload.rating, payload.delivery_rating, payload.packaging_rating, payload.taste_rating].every(score => score >= 1 && score <= 5)) {
+        alert('请将综合评分、配送、包装、口味都填写为 1 到 5 分。');
+        return;
+    }
+
+    fetch(`/api/orders/${currentReviewOrderId}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(payload)
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            closeReviewDialog();
+            showToast('评价提交成功');
+            loadOrders();
+            searchHistoryHandler();
+            loadFavorites();
+            loadReviews();
+        });
 }
 
 function cancelOrder(orderId) {
@@ -619,6 +1037,8 @@ function checkLoginStatus() {
             loadAddresses();
             loadOrders();
             loadStores();
+            loadFavorites();
+            updateCurrentAddressDisplay();
             startRealtimeRefresh();
         });
 }
@@ -638,12 +1058,24 @@ function logout(redirect = true) {
     currentUser = null;
     sessionId = null;
     selectedStore = null;
+    favoriteStoreIds = [];
+    favoriteMenuIds = [];
+    favoriteItems = [];
+    recentViews = [];
+    reorderOrders = [];
+    currentStoreReviews = [];
+    closeReviewDialog();
     loginLink.style.display = 'block';
     userInfo.style.display = 'none';
     addressMenuBtn.style.display = 'none';
     addressList.innerHTML = '<p>登录后可管理地址。</p>';
     orderList.innerHTML = '<p>登录后可查看自己的订单。</p>';
     historyList.innerHTML = '<p>登录后可查询历史订单。</p>';
+    favoriteStoreList.innerHTML = '<p>登录后可查看收藏店铺。</p>';
+    favoriteItemList.innerHTML = '<p>登录后可查看收藏菜品。</p>';
+    recentViewList.innerHTML = '<p>登录后可查看最近浏览记录。</p>';
+    reorderList.innerHTML = '<p>登录后可使用一键再来一单。</p>';
+    currentAddressDisplay.textContent = '请先登录后选择地址';
     if (redirect) window.location.href = '/login';
 }
 
@@ -661,6 +1093,7 @@ function loadAddresses() {
             }
             currentUser.addresses = data.addresses || [];
             renderAddresses();
+            updateCurrentAddressDisplay();
         });
 }
 
@@ -761,6 +1194,13 @@ storeSearchInput.addEventListener('input', event => {
     storeSearchKeyword = event.target.value || '';
     renderStoreList();
 });
+quickCategoryStrip.querySelectorAll('.quick-category-chip').forEach(button => {
+    button.addEventListener('click', () => {
+        storeShortcutKeyword = button.dataset.storeShortcut || 'all';
+        syncQuickCategoryState();
+        renderStoreList();
+    });
+});
 menuSearchInput.addEventListener('input', event => {
     menuSearchKeyword = event.target.value || '';
     renderMenu();
@@ -768,18 +1208,48 @@ menuSearchInput.addEventListener('input', event => {
 storeDetailTabs.forEach(tab => {
     tab.addEventListener('click', () => showStoreTab(tab.dataset.storeTab));
 });
+closeReviewModal.addEventListener('click', closeReviewDialog);
+submitReviewBtn.addEventListener('click', submitReviewHandler);
+reviewModal.addEventListener('click', event => {
+    if (event.target === reviewModal) {
+        closeReviewDialog();
+    }
+});
+reviewImage.addEventListener('change', async event => {
+    const [file] = event.target.files || [];
+    reviewImageData = file ? await readFileAsDataUrl(file) : null;
+    reviewImagePreview.innerHTML = reviewImageData ? `<img src="${reviewImageData}" alt="评价预览" />` : '';
+});
+homeAddressBtn.addEventListener('click', () => switchPage('addresses'));
+messageCenterBtn.addEventListener('click', () => switchPage('orders'));
+profileCenterBtn.addEventListener('click', () => switchPage('favorites'));
+floatingCartBtn.addEventListener('click', () => {
+    if (selectedStore) {
+        switchPage('store-detail');
+        return;
+    }
+    switchPage('cart');
+});
 
 window.selectStore = selectStore;
+window.switchPage = switchPage;
 window.addToCart = addToCart;
 window.addComboToCart = addComboToCart;
 window.removeFromCart = removeFromCart;
 window.cancelOrder = cancelOrder;
 window.editAddress = editAddress;
 window.deleteAddress = deleteAddress;
+window.toggleFavoriteStore = toggleFavoriteStore;
+window.toggleFavoriteItem = toggleFavoriteItem;
+window.showItemDetail = showItemDetail;
+window.showFavoriteItem = showFavoriteItem;
+window.reorderOrder = reorderOrder;
+window.openReviewModal = openReviewModal;
 
 window.addEventListener('load', () => {
     loadSelectedStore();
     renderSelectedStoreState();
+    syncQuickCategoryState();
     showStoreTab(currentStoreTab);
     checkLoginStatus();
     renderCart();
