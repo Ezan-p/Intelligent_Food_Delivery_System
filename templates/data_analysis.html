@@ -22,30 +22,50 @@
         <section>
             <div class="section-header-row">
                 <div>
-                    <h2>经营分析结果</h2>
-                    <p class="analysis-summary">点击按钮刷新最新分析结果。</p>
+                    <h2>经营分析总览</h2>
+                    <p class="analysis-summary">页面按指标卡片、图表区、AI 分析与建议三段展示。</p>
                 </div>
                 <button id="refreshAnalysis" class="primary">刷新分析</button>
             </div>
-            <div id="analysisStats" class="stats-grid"></div>
+            <div id="analysisStats" class="analysis-kpi-grid"></div>
         </section>
 
         <section>
-            <div class="analysis-layout">
+            <div class="section-header-row">
+                <div>
+                    <h2>图表区</h2>
+                    <p class="analysis-summary">用可视化摘要展示订单趋势、热销商品排行和时段分布。</p>
+                </div>
+            </div>
+            <div class="analysis-chart-grid">
                 <div class="analysis-panel">
-                    <h3>热销商品</h3>
-                    <div id="topItems"></div>
+                    <h3>订单趋势</h3>
+                    <div id="orderTrendChart" class="chart-list"></div>
                 </div>
                 <div class="analysis-panel">
-                    <h3>AI经营总结</h3>
-                    <div id="analysisSource" class="analysis-summary">等待分析中...</div>
-                    <div id="analysisSummary" class="analysis-text-block"></div>
+                    <h3>热销商品排行</h3>
+                    <div id="topItems" class="chart-list"></div>
+                </div>
+                <div class="analysis-panel">
+                    <h3>时段分布</h3>
+                    <div id="timeDistributionChart" class="chart-list"></div>
                 </div>
             </div>
         </section>
 
         <section>
+            <div class="section-header-row">
+                <div>
+                    <h2>AI 分析与建议区</h2>
+                    <p class="analysis-summary">集中展示自然语言洞察、经营建议与风险提示。</p>
+                </div>
+            </div>
             <div class="analysis-layout">
+                <div class="analysis-panel analysis-panel-wide">
+                    <h3>自然语言洞察</h3>
+                    <div id="analysisSource" class="analysis-summary">等待分析中...</div>
+                    <div id="analysisSummary" class="analysis-text-block"></div>
+                </div>
                 <div class="analysis-panel">
                     <h3>核心洞察</h3>
                     <div id="analysisInsights"></div>
@@ -53,6 +73,10 @@
                 <div class="analysis-panel">
                     <h3>运营建议</h3>
                     <div id="analysisSuggestions"></div>
+                </div>
+                <div class="analysis-panel">
+                    <h3>风险提示</h3>
+                    <div id="analysisRisks"></div>
                 </div>
             </div>
         </section>

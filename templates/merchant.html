@@ -146,91 +146,154 @@
             </section>
 
             <section class="page" id="page-categories">
-                <div class="section-header-row">
-                    <div>
-                        <h2>商品分类管理</h2>
-                        <p class="analysis-summary">维护当前店铺商品分类。</p>
+                <div class="management-shell">
+                    <div class="management-header">
+                        <div>
+                            <h2>商品分类管理</h2>
+                            <p class="analysis-summary">统一按后台管理模式查看、筛选和维护分类。</p>
+                        </div>
+                        <button id="openCategoryModalBtn" class="primary">新增分类</button>
+                    </div>
+                    <div class="management-toolbar">
+                        <input type="search" id="categorySearchInput" placeholder="搜索分类名称" />
+                        <select id="categoryStatusFilter">
+                            <option value="all">全部状态</option>
+                            <option value="active">上架中</option>
+                            <option value="inactive">已下架</option>
+                        </select>
+                    </div>
+                    <div class="management-table-wrap">
+                        <table class="management-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>分类名称</th>
+                                    <th>状态</th>
+                                    <th>关联商品数</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="categoryList"></tbody>
+                        </table>
                     </div>
                 </div>
-                <div class="category-form">
-                    <label>分类名称
-                        <input type="text" id="categoryName" placeholder="请输入分类名称" />
-                    </label>
-                    <button id="saveCategory" class="primary">保存分类</button>
-                    <button id="resetCategory" class="secondary">重置</button>
-                </div>
-                <div id="categoryList" class="category-list"></div>
             </section>
 
             <section class="page" id="page-products">
-                <div class="section-header-row">
-                    <div>
-                        <h2>商品管理</h2>
-                        <p class="analysis-summary">新增、编辑和删除店铺菜品。</p>
+                <div class="management-shell">
+                    <div class="management-header">
+                        <div>
+                            <h2>商品管理</h2>
+                            <p class="analysis-summary">按表格管理商品，支持详情、编辑、删除和上下架。</p>
+                        </div>
+                        <button id="openProductModalBtn" class="primary">新增商品</button>
+                    </div>
+                    <div class="management-toolbar">
+                        <input type="search" id="productSearchInput" placeholder="搜索商品名称或描述" />
+                        <select id="productCategoryFilter">
+                            <option value="all">全部分类</option>
+                        </select>
+                        <select id="productStatusFilter">
+                            <option value="all">全部状态</option>
+                            <option value="active">上架中</option>
+                            <option value="inactive">已下架</option>
+                        </select>
+                    </div>
+                    <div class="management-table-wrap">
+                        <table class="management-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>商品</th>
+                                    <th>分类</th>
+                                    <th>价格</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="productList"></tbody>
+                        </table>
                     </div>
                 </div>
-                <div class="product-form">
-                    <label>名称
-                        <input type="text" id="itemName" placeholder="请输入商品名称" />
-                    </label>
-                    <label>描述
-                        <input type="text" id="itemDescription" placeholder="请输入商品描述" />
-                    </label>
-                    <label>价格
-                        <input type="number" id="itemPrice" placeholder="请输入价格" step="0.01" />
-                    </label>
-                    <label>分类
-                        <select id="itemCategory">
-                            <option value="">请选择分类</option>
-                        </select>
-                    </label>
-                    <label>商品图片
-                        <input type="file" id="itemImage" accept="image/*" />
-                    </label>
-                    <div id="imagePreview" class="image-preview"></div>
-                    <button id="saveItem" class="primary">保存商品</button>
-                    <button id="resetItem" class="secondary">重置</button>
-                </div>
-                <div id="productList" class="menu-grid"></div>
             </section>
 
             <section class="page" id="page-combos">
-                <div class="section-header-row">
-                    <div>
-                        <h2>套餐管理</h2>
-                        <p class="analysis-summary">配置套餐商品组合和折扣信息。</p>
+                <div class="management-shell">
+                    <div class="management-header">
+                        <div>
+                            <h2>套餐管理</h2>
+                            <p class="analysis-summary">统一维护套餐、折扣和套餐内商品。</p>
+                        </div>
+                        <button id="openComboModalBtn" class="primary">新增套餐</button>
+                    </div>
+                    <div class="management-toolbar">
+                        <input type="search" id="comboSearchInput" placeholder="搜索套餐名称或描述" />
+                        <select id="comboStatusFilter">
+                            <option value="all">全部状态</option>
+                            <option value="active">上架中</option>
+                            <option value="inactive">已下架</option>
+                        </select>
+                    </div>
+                    <div class="management-table-wrap">
+                        <table class="management-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>套餐名称</th>
+                                    <th>包含商品</th>
+                                    <th>售价</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="comboList"></tbody>
+                        </table>
                     </div>
                 </div>
-                <div class="combo-form">
-                    <label>套餐名称
-                        <input type="text" id="comboName" placeholder="请输入套餐名称" />
-                    </label>
-                    <label>描述
-                        <input type="text" id="comboDescription" placeholder="请输入套餐描述" />
-                    </label>
-                    <label>价格
-                        <input type="number" id="comboPrice" placeholder="请输入价格" step="0.01" />
-                    </label>
-                    <label>折扣
-                        <input type="number" id="comboDiscount" placeholder="折扣比例" step="0.1" value="1.0" min="0.1" max="1.0" />
-                    </label>
-                    <label>选择商品
-                        <select id="comboItems" multiple size="5"></select>
-                    </label>
-                    <button id="saveCombo" class="primary">保存套餐</button>
-                    <button id="resetCombo" class="secondary">重置</button>
-                </div>
-                <div id="comboList" class="combo-grid"></div>
             </section>
 
             <section class="page" id="page-orders">
-                <div class="section-header-row">
-                    <div>
-                        <h2>订单列表</h2>
-                        <p class="analysis-summary">查看并处理当前店铺订单。</p>
+                <div class="management-shell">
+                    <div class="management-header">
+                        <div>
+                            <h2>订单列表</h2>
+                            <p class="analysis-summary">按状态分层处理订单，并在右侧查看订单详情。</p>
+                        </div>
+                    </div>
+                    <div class="status-tab-row" id="orderStatusTabs">
+                        <button class="status-tab active" data-order-status="all">全部</button>
+                        <button class="status-tab" data-order-status="已接单">待接单</button>
+                        <button class="status-tab" data-order-status="制作中">制作中</button>
+                        <button class="status-tab" data-order-status="配送中">配送中</button>
+                        <button class="status-tab" data-order-status="已完成">已完成</button>
+                        <button class="status-tab" data-order-status="已取消">已取消</button>
+                    </div>
+                    <div class="management-toolbar">
+                        <input type="search" id="orderSearchInput" placeholder="搜索订单号、用户名" />
+                    </div>
+                    <div class="merchant-order-layout">
+                        <div class="management-table-wrap">
+                            <table class="management-table">
+                                <thead>
+                                    <tr>
+                                        <th>订单号</th>
+                                        <th>用户</th>
+                                        <th>状态</th>
+                                        <th>金额</th>
+                                        <th>下单时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="merchantOrderList"></tbody>
+                            </table>
+                        </div>
+                        <aside class="order-detail-panel" id="orderDetailPanel">
+                            <h3>订单详情</h3>
+                            <p class="analysis-summary">点击某个订单后，在这里查看详情与状态操作。</p>
+                            <div id="orderDetailContent"></div>
+                        </aside>
                     </div>
                 </div>
-                <div id="merchantOrderList"></div>
             </section>
 
             <section class="page" id="page-services">
@@ -252,6 +315,99 @@
                 </div>
             </section>
         </main>
+    </div>
+
+    <div id="merchantEditorModal" class="modal-overlay" style="display: none;">
+        <div class="modal-card merchant-modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 id="merchantEditorTitle">编辑内容</h3>
+                    <p id="merchantEditorSubtitle" class="analysis-summary">在弹窗中完成新增与编辑。</p>
+                </div>
+                <button id="closeMerchantEditorModal" class="close-btn" type="button">×</button>
+            </div>
+
+            <div id="categoryEditorForm" class="merchant-editor-form" style="display: none;">
+                <div class="category-form">
+                    <label>分类名称
+                        <input type="text" id="categoryName" placeholder="请输入分类名称" />
+                    </label>
+                    <label>状态
+                        <select id="categoryStatus">
+                            <option value="active">上架中</option>
+                            <option value="inactive">已下架</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="form-actions-row">
+                    <button id="saveCategory" class="primary">保存分类</button>
+                    <button id="resetCategory" class="secondary">重置</button>
+                </div>
+            </div>
+
+            <div id="productEditorForm" class="merchant-editor-form" style="display: none;">
+                <div class="product-form">
+                    <label>名称
+                        <input type="text" id="itemName" placeholder="请输入商品名称" />
+                    </label>
+                    <label>描述
+                        <input type="text" id="itemDescription" placeholder="请输入商品描述" />
+                    </label>
+                    <label>价格
+                        <input type="number" id="itemPrice" placeholder="请输入价格" step="0.01" />
+                    </label>
+                    <label>分类
+                        <select id="itemCategory">
+                            <option value="">请选择分类</option>
+                        </select>
+                    </label>
+                    <label>状态
+                        <select id="itemStatus">
+                            <option value="active">上架中</option>
+                            <option value="inactive">已下架</option>
+                        </select>
+                    </label>
+                    <label>商品图片
+                        <input type="file" id="itemImage" accept="image/*" />
+                    </label>
+                    <div id="imagePreview" class="image-preview store-form-span-2"></div>
+                </div>
+                <div class="form-actions-row">
+                    <button id="saveItem" class="primary">保存商品</button>
+                    <button id="resetItem" class="secondary">重置</button>
+                </div>
+            </div>
+
+            <div id="comboEditorForm" class="merchant-editor-form" style="display: none;">
+                <div class="combo-form">
+                    <label>套餐名称
+                        <input type="text" id="comboName" placeholder="请输入套餐名称" />
+                    </label>
+                    <label>描述
+                        <input type="text" id="comboDescription" placeholder="请输入套餐描述" />
+                    </label>
+                    <label>价格
+                        <input type="number" id="comboPrice" placeholder="请输入价格" step="0.01" />
+                    </label>
+                    <label>折扣
+                        <input type="number" id="comboDiscount" placeholder="折扣比例" step="0.1" value="1.0" min="0.1" max="1.0" />
+                    </label>
+                    <label>状态
+                        <select id="comboStatus">
+                            <option value="active">上架中</option>
+                            <option value="inactive">已下架</option>
+                        </select>
+                    </label>
+                    <label class="store-form-span-2">选择商品
+                        <select id="comboItems" multiple size="8"></select>
+                    </label>
+                </div>
+                <div class="form-actions-row">
+                    <button id="saveCombo" class="primary">保存套餐</button>
+                    <button id="resetCombo" class="secondary">重置</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/merchant.js"></script>

@@ -1,27 +1,44 @@
 const productList = document.getElementById('productList');
 const merchantOrderList = document.getElementById('merchantOrderList');
+const orderDetailContent = document.getElementById('orderDetailContent');
+const orderStatusTabs = document.getElementById('orderStatusTabs');
+const orderSearchInput = document.getElementById('orderSearchInput');
+
 const itemName = document.getElementById('itemName');
 const itemDescription = document.getElementById('itemDescription');
 const itemPrice = document.getElementById('itemPrice');
 const itemCategory = document.getElementById('itemCategory');
+const itemStatus = document.getElementById('itemStatus');
 const itemImage = document.getElementById('itemImage');
 const imagePreview = document.getElementById('imagePreview');
 const saveItem = document.getElementById('saveItem');
 const resetItem = document.getElementById('resetItem');
+const productSearchInput = document.getElementById('productSearchInput');
+const productCategoryFilter = document.getElementById('productCategoryFilter');
+const productStatusFilter = document.getElementById('productStatusFilter');
+const openProductModalBtn = document.getElementById('openProductModalBtn');
 
 const categoryName = document.getElementById('categoryName');
+const categoryStatus = document.getElementById('categoryStatus');
 const saveCategory = document.getElementById('saveCategory');
 const resetCategory = document.getElementById('resetCategory');
 const categoryList = document.getElementById('categoryList');
+const categorySearchInput = document.getElementById('categorySearchInput');
+const categoryStatusFilter = document.getElementById('categoryStatusFilter');
+const openCategoryModalBtn = document.getElementById('openCategoryModalBtn');
 
 const comboName = document.getElementById('comboName');
 const comboDescription = document.getElementById('comboDescription');
 const comboPrice = document.getElementById('comboPrice');
 const comboDiscount = document.getElementById('comboDiscount');
+const comboStatus = document.getElementById('comboStatus');
 const comboItems = document.getElementById('comboItems');
 const saveCombo = document.getElementById('saveCombo');
 const resetCombo = document.getElementById('resetCombo');
 const comboList = document.getElementById('comboList');
+const comboSearchInput = document.getElementById('comboSearchInput');
+const comboStatusFilter = document.getElementById('comboStatusFilter');
+const openComboModalBtn = document.getElementById('openComboModalBtn');
 const dashboardStats = document.getElementById('dashboardStats');
 
 const merchantStoreName = document.getElementById('merchantStoreName');
@@ -48,10 +65,19 @@ const merchantUserInfo = document.getElementById('merchantUserInfo');
 const merchantUsername = document.getElementById('merchantUsername');
 const merchantLogoutBtn = document.getElementById('merchantLogoutBtn');
 
+const merchantEditorModal = document.getElementById('merchantEditorModal');
+const closeMerchantEditorModal = document.getElementById('closeMerchantEditorModal');
+const merchantEditorTitle = document.getElementById('merchantEditorTitle');
+const merchantEditorSubtitle = document.getElementById('merchantEditorSubtitle');
+const categoryEditorForm = document.getElementById('categoryEditorForm');
+const productEditorForm = document.getElementById('productEditorForm');
+const comboEditorForm = document.getElementById('comboEditorForm');
+
 const STORAGE_PREFIX = 'merchant';
 let menuData = [];
 let categoryData = [];
 let comboData = [];
+let orderData = [];
 let editingId = null;
 let editingCategoryId = null;
 let editingComboId = null;
@@ -61,6 +87,8 @@ let currentUser = null;
 let currentStore = null;
 let draftStoreAvatar = null;
 let draftStoreCover = null;
+let currentOrderStatusFilter = 'all';
+let currentOrderDetailId = null;
 
 function authHeaders() {
     return sessionId ? { 'X-Session-ID': sessionId } : {};
@@ -68,6 +96,15 @@ function authHeaders() {
 
 function formatPrice(price) {
     return Number(price || 0).toFixed(2);
+}
+
+function getStatusLabel(status) {
+    const labels = {
+        active: '上架中',
+        inactive: '已下架',
+        '已接单': '待接单'
+    };
+    return labels[status] || status;
 }
 
 function showPage(pageName) {
@@ -116,6 +153,25 @@ function readFileAsDataUrl(file) {
         reader.onerror = reject;
         reader.readAsDataURL(file);
     });
+}
+
+function openEditorModal(type) {
+    merchantEditorModal.style.display = 'flex';
+    categoryEditorForm.style.display = type === 'category' ? 'block' : 'none';
+    productEditorForm.style.display = type === 'product' ? 'block' : 'none';
+    comboEditorForm.style.display = type === 'combo' ? 'block' : 'none';
+
+    const titleMap = {
+        category: editingCategoryId ? '编辑分类' : '新增分类',
+        product: editingId ? '编辑商品' : '新增商品',
+        combo: editingComboId ? '编辑套餐' : '新增套餐'
+    };
+    merchantEditorTitle.textContent = titleMap[type];
+    merchantEditorSubtitle.textContent = '在弹窗中完成新增与编辑。';
+}
+
+function closeEditorModal() {
+    merchantEditorModal.style.display = 'none';
 }
 
 function renderStorePreview() {
@@ -226,7 +282,6 @@ function loadStore() {
 
 async function saveStore() {
     if (!requireMerchantSession() || !currentStore) return;
-
     const avatarData = storeAvatarFile.files[0] ? await readFileAsDataUrl(storeAvatarFile.files[0]) : draftStoreAvatar;
     const coverData = storeCoverFile.files[0] ? await readFileAsDataUrl(storeCoverFile.files[0]) : draftStoreCover;
 
@@ -308,9 +363,7 @@ function logout(redirect = true) {
     currentUser = null;
     currentStore = null;
     renderAuthState();
-    if (redirect) {
-        window.location.href = '/login';
-    }
+    if (redirect) window.location.href = '/login';
 }
 
 function loadDashboard() {
@@ -322,21 +375,21 @@ function loadDashboard() {
                 dashboardStats.innerHTML = `<p>${data.error}</p>`;
                 return;
             }
-            renderDashboard(data);
+            dashboardStats.innerHTML = `
+                <div class="stat-card"><h3>总订单数</h3><div class="stat-value">${data.total_orders}</div></div>
+                <div class="stat-card"><h3>总收入</h3><div class="stat-value">¥${formatPrice(data.total_revenue)}</div></div>
+                <div class="stat-card"><h3>待处理订单</h3><div class="stat-value">${data.pending_orders}</div></div>
+                <div class="stat-card"><h3>已完成订单</h3><div class="stat-value">${data.completed_orders}</div></div>
+                <div class="stat-card"><h3>已取消订单</h3><div class="stat-value">${data.cancelled_orders}</div></div>
+                <div class="stat-card"><h3>今日订单</h3><div class="stat-value">${data.today_orders}</div></div>
+                <div class="stat-card"><h3>今日收入</h3><div class="stat-value">¥${formatPrice(data.today_revenue)}</div></div>
+                <div class="stat-card"><h3>商品数量</h3><div class="stat-value">${data.menu_count}</div></div>
+                <div class="stat-card"><h3>套餐数量</h3><div class="stat-value">${data.combo_count}</div></div>`;
         });
 }
 
-function renderDashboard(stats) {
-    dashboardStats.innerHTML = `
-        <div class="stat-card"><h3>总订单数</h3><div class="stat-value">${stats.total_orders}</div></div>
-        <div class="stat-card"><h3>总收入</h3><div class="stat-value">¥${formatPrice(stats.total_revenue)}</div></div>
-        <div class="stat-card"><h3>待处理订单</h3><div class="stat-value">${stats.pending_orders}</div></div>
-        <div class="stat-card"><h3>已完成订单</h3><div class="stat-value">${stats.completed_orders}</div></div>
-        <div class="stat-card"><h3>已取消订单</h3><div class="stat-value">${stats.cancelled_orders}</div></div>
-        <div class="stat-card"><h3>今日订单</h3><div class="stat-value">${stats.today_orders}</div></div>
-        <div class="stat-card"><h3>今日收入</h3><div class="stat-value">¥${formatPrice(stats.today_revenue)}</div></div>
-        <div class="stat-card"><h3>商品数量</h3><div class="stat-value">${stats.menu_count}</div></div>
-        <div class="stat-card"><h3>套餐数量</h3><div class="stat-value">${stats.combo_count}</div></div>`;
+function updateProductCategoryFilter() {
+    productCategoryFilter.innerHTML = '<option value="all">全部分类</option>' + categoryData.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
 }
 
 function loadCategories() {
@@ -346,24 +399,41 @@ function loadCategories() {
             categoryData = data.categories || [];
             renderCategories();
             updateCategorySelect();
+            updateProductCategoryFilter();
         });
 }
 
 function renderCategories() {
-    categoryList.innerHTML = categoryData.length
-        ? categoryData.map(cat => `
-        <div class="category-item">
-            <span>${cat.name}</span>
-            <div class="category-actions">
-                <button class="secondary" onclick="startEditCategory(${cat.id})">编辑</button>
-                <button class="secondary" onclick="deleteCategory(${cat.id})">删除</button>
-            </div>
-        </div>`).join('')
-        : '<p>当前没有分类。</p>';
+    const keyword = (categorySearchInput.value || '').trim().toLowerCase();
+    const status = categoryStatusFilter.value || 'all';
+    const filtered = categoryData.filter(cat => {
+        const hitKeyword = !keyword || (cat.name || '').toLowerCase().includes(keyword);
+        const hitStatus = status === 'all' || (cat.status || 'active') === status;
+        return hitKeyword && hitStatus;
+    });
+
+    categoryList.innerHTML = filtered.length ? filtered.map(cat => {
+        const productCount = menuData.filter(item => item.category_id === cat.id).length;
+        return `
+            <tr>
+                <td>${cat.id}</td>
+                <td>${cat.name}</td>
+                <td><span class="service-tag">${getStatusLabel(cat.status || 'active')}</span></td>
+                <td>${productCount}</td>
+                <td>
+                    <div class="table-actions">
+                        <button class="secondary" onclick="showCategoryDetail(${cat.id})">查看详情</button>
+                        <button class="secondary" onclick="startEditCategory(${cat.id})">编辑</button>
+                        <button class="secondary" onclick="toggleCategoryStatus(${cat.id})">${(cat.status || 'active') === 'active' ? '下架' : '上架'}</button>
+                        <button class="secondary" onclick="deleteCategory(${cat.id})">删除</button>
+                    </div>
+                </td>
+            </tr>`;
+    }).join('') : '<tr><td colspan="5">当前没有符合条件的分类。</td></tr>';
 }
 
 function updateCategorySelect() {
-    itemCategory.innerHTML = '<option value="">请选择分类</option>' + categoryData.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
+    itemCategory.innerHTML = '<option value="">请选择分类</option>' + categoryData.filter(cat => (cat.status || 'active') === 'active').map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
 }
 
 function startEditCategory(id) {
@@ -371,14 +441,20 @@ function startEditCategory(id) {
     if (!category) return;
     editingCategoryId = id;
     categoryName.value = category.name;
+    categoryStatus.value = category.status || 'active';
     saveCategory.textContent = '更新分类';
-    showPage('categories');
+    openEditorModal('category');
 }
 
 function resetCategoryForm() {
     editingCategoryId = null;
     categoryName.value = '';
+    categoryStatus.value = 'active';
     saveCategory.textContent = '保存分类';
+}
+
+function showCategoryDetail(id) {
+    startEditCategory(id);
 }
 
 function saveCategoryHandler() {
@@ -395,7 +471,7 @@ function saveCategoryHandler() {
     fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name, status: categoryStatus.value })
     })
         .then(response => response.json())
         .then(data => {
@@ -404,6 +480,25 @@ function saveCategoryHandler() {
                 return;
             }
             resetCategoryForm();
+            closeEditorModal();
+            loadCategories();
+        });
+}
+
+function toggleCategoryStatus(id) {
+    const category = categoryData.find(item => item.id === id);
+    if (!category) return;
+    fetch(`/api/categories/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ name: category.name, status: (category.status || 'active') === 'active' ? 'inactive' : 'active' })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
             loadCategories();
         });
 }
@@ -411,11 +506,7 @@ function saveCategoryHandler() {
 function deleteCategory(id) {
     if (!requireMerchantSession()) return;
     if (!confirm('确定要删除该分类吗？')) return;
-
-    fetch(`/api/categories/${id}`, {
-        method: 'DELETE',
-        headers: authHeaders()
-    })
+    fetch(`/api/categories/${id}`, { method: 'DELETE', headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
@@ -437,25 +528,49 @@ function loadMenu() {
 }
 
 function renderProducts() {
-    productList.innerHTML = menuData.length
-        ? menuData.map(item => {
-            const category = categoryData.find(cat => cat.id === item.category_id);
-            return `
-        <div class="menu-card">
-            ${item.image ? `<div class="card-image"><img src="${item.image}" alt="${item.name}" /></div>` : '<div class="card-image no-image">暂无图片</div>'}
-            <h3>${item.name}</h3>
-            <p>${item.description || '暂无描述'}</p>
-            <div class="menu-card-footer">
-                <span class="price">¥${formatPrice(item.price)}</span>
-                <span class="category">${category ? category.name : '未分类'}</span>
-                <div class="card-actions">
-                    <button class="secondary" onclick="startEdit(${item.id})">编辑</button>
-                    <button class="secondary" onclick="deleteProduct(${item.id})">删除</button>
-                </div>
-            </div>
-        </div>`;
-        }).join('')
-        : '<p>当前没有商品，请添加新商品。</p>';
+    const keyword = (productSearchInput.value || '').trim().toLowerCase();
+    const categoryFilterValue = productCategoryFilter.value || 'all';
+    const statusValue = productStatusFilter.value || 'all';
+    const filtered = menuData.filter(item => {
+        const category = categoryData.find(cat => cat.id === item.category_id);
+        const haystack = [item.name, item.description, category ? category.name : ''].join(' ').toLowerCase();
+        const hitKeyword = !keyword || haystack.includes(keyword);
+        const hitCategory = categoryFilterValue === 'all' || String(item.category_id) === categoryFilterValue;
+        const hitStatus = statusValue === 'all' || (item.status || 'active') === statusValue;
+        return hitKeyword && hitCategory && hitStatus;
+    });
+
+    productList.innerHTML = filtered.length ? filtered.map(item => {
+        const category = categoryData.find(cat => cat.id === item.category_id);
+        return `
+            <tr>
+                <td>${item.id}</td>
+                <td>
+                    <div class="table-item-main">
+                        ${item.image ? `<img src="${item.image}" alt="${item.name}" class="table-thumb" />` : '<div class="table-thumb table-thumb-empty">无图</div>'}
+                        <div>
+                            <strong>${item.name}</strong>
+                            <small>${item.description || '暂无描述'}</small>
+                        </div>
+                    </div>
+                </td>
+                <td>${category ? category.name : '未分类'}</td>
+                <td>¥${formatPrice(item.price)}</td>
+                <td><span class="service-tag">${getStatusLabel(item.status || 'active')}</span></td>
+                <td>
+                    <div class="table-actions">
+                        <button class="secondary" onclick="showProductDetail(${item.id})">查看详情</button>
+                        <button class="secondary" onclick="startEdit(${item.id})">编辑</button>
+                        <button class="secondary" onclick="toggleProductStatus(${item.id})">${(item.status || 'active') === 'active' ? '下架' : '上架'}</button>
+                        <button class="secondary" onclick="deleteProduct(${item.id})">删除</button>
+                    </div>
+                </td>
+            </tr>`;
+    }).join('') : '<tr><td colspan="6">当前没有符合条件的商品。</td></tr>';
+}
+
+function showProductDetail(id) {
+    startEdit(id);
 }
 
 function startEdit(id) {
@@ -466,10 +581,11 @@ function startEdit(id) {
     itemDescription.value = item.description;
     itemPrice.value = item.price;
     itemCategory.value = item.category_id;
+    itemStatus.value = item.status || 'active';
     currentImageData = item.image || null;
     imagePreview.innerHTML = item.image ? `<img src="${item.image}" alt="${item.name}" class="preview-img" />` : '<p>暂无图片</p>';
     saveItem.textContent = '更新商品';
-    showPage('products');
+    openEditorModal('product');
 }
 
 function resetForm() {
@@ -478,6 +594,7 @@ function resetForm() {
     itemDescription.value = '';
     itemPrice.value = '';
     itemCategory.value = '';
+    itemStatus.value = 'active';
     itemImage.value = '';
     imagePreview.innerHTML = '';
     currentImageData = null;
@@ -490,7 +607,6 @@ function saveProduct() {
     const description = itemDescription.value.trim();
     const price = itemPrice.value;
     const categoryId = itemCategory.value;
-
     if (!name || !price || !categoryId) {
         alert('请完整填写商品信息。');
         return;
@@ -499,19 +615,18 @@ function saveProduct() {
     if (itemImage.files && itemImage.files[0]) {
         const reader = new FileReader();
         reader.onload = event => {
-            doSaveProduct({ name, description, price, category_id: parseInt(categoryId, 10), image: event.target.result });
+            doSaveProduct({ name, description, price, category_id: parseInt(categoryId, 10), image: event.target.result, status: itemStatus.value });
         };
         reader.readAsDataURL(itemImage.files[0]);
         return;
     }
 
-    doSaveProduct({ name, description, price, category_id: parseInt(categoryId, 10), image: currentImageData });
+    doSaveProduct({ name, description, price, category_id: parseInt(categoryId, 10), image: currentImageData, status: itemStatus.value });
 }
 
 function doSaveProduct(payload) {
     const url = editingId ? `/api/menu/${editingId}` : '/api/menu';
     const method = editingId ? 'PUT' : 'POST';
-
     fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -524,6 +639,32 @@ function doSaveProduct(payload) {
                 return;
             }
             resetForm();
+            closeEditorModal();
+            loadMenu();
+        });
+}
+
+function toggleProductStatus(id) {
+    const item = menuData.find(menuItem => menuItem.id === id);
+    if (!item) return;
+    fetch(`/api/menu/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+            name: item.name,
+            description: item.description || '',
+            price: item.price,
+            category_id: item.category_id,
+            image: item.image,
+            status: (item.status || 'active') === 'active' ? 'inactive' : 'active'
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
             loadMenu();
         });
 }
@@ -531,11 +672,7 @@ function doSaveProduct(payload) {
 function deleteProduct(id) {
     if (!requireMerchantSession()) return;
     if (!confirm('确定要删除该商品吗？')) return;
-
-    fetch(`/api/menu/${id}`, {
-        method: 'DELETE',
-        headers: authHeaders()
-    })
+    fetch(`/api/menu/${id}`, { method: 'DELETE', headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
@@ -556,33 +693,50 @@ function loadCombos() {
 }
 
 function updateComboItemsSelect() {
-    comboItems.innerHTML = menuData.map(item => `<option value="${item.id}">${item.name}</option>`).join('');
+    comboItems.innerHTML = menuData.filter(item => (item.status || 'active') === 'active').map(item => `<option value="${item.id}">${item.name}</option>`).join('');
 }
 
 function renderCombos() {
-    comboList.innerHTML = comboData.length
-        ? comboData.map(combo => {
-            const itemNames = combo.items.map(id => {
-                const item = menuData.find(menuItem => menuItem.id === id);
-                return item ? item.name : `商品${id}`;
-            }).join('，');
-            return `
-        <div class="combo-card">
-            <h3>${combo.name}</h3>
-            <p>${combo.description || '暂无描述'}</p>
-            <div class="combo-items">包含商品: ${itemNames}</div>
-            <div class="combo-footer">
-                <span class="price">¥${formatPrice(combo.price * combo.discount)}</span>
-                <span class="original-price">原价 ¥${formatPrice(combo.price)}</span>
-                <span class="discount">${(combo.discount * 100).toFixed(0)}%折扣</span>
-                <div class="card-actions">
-                    <button class="secondary" onclick="startEditCombo(${combo.id})">编辑</button>
-                    <button class="secondary" onclick="deleteCombo(${combo.id})">删除</button>
-                </div>
-            </div>
-        </div>`;
-        }).join('')
-        : '<p>当前没有套餐。</p>';
+    const keyword = (comboSearchInput.value || '').trim().toLowerCase();
+    const statusValue = comboStatusFilter.value || 'all';
+    const filtered = comboData.filter(combo => {
+        const haystack = [combo.name, combo.description].join(' ').toLowerCase();
+        const hitKeyword = !keyword || haystack.includes(keyword);
+        const hitStatus = statusValue === 'all' || (combo.status || 'active') === statusValue;
+        return hitKeyword && hitStatus;
+    });
+
+    comboList.innerHTML = filtered.length ? filtered.map(combo => {
+        const itemNames = combo.items.map(id => {
+            const item = menuData.find(menuItem => menuItem.id === id);
+            return item ? item.name : `商品${id}`;
+        }).join('，');
+        return `
+            <tr>
+                <td>${combo.id}</td>
+                <td>
+                    <div class="table-item-stack">
+                        <strong>${combo.name}</strong>
+                        <small>${combo.description || '暂无描述'}</small>
+                    </div>
+                </td>
+                <td>${itemNames || '无'}</td>
+                <td>¥${formatPrice(combo.price * combo.discount)}</td>
+                <td><span class="service-tag">${getStatusLabel(combo.status || 'active')}</span></td>
+                <td>
+                    <div class="table-actions">
+                        <button class="secondary" onclick="showComboDetail(${combo.id})">查看详情</button>
+                        <button class="secondary" onclick="startEditCombo(${combo.id})">编辑</button>
+                        <button class="secondary" onclick="toggleComboStatus(${combo.id})">${(combo.status || 'active') === 'active' ? '下架' : '上架'}</button>
+                        <button class="secondary" onclick="deleteCombo(${combo.id})">删除</button>
+                    </div>
+                </td>
+            </tr>`;
+    }).join('') : '<tr><td colspan="6">当前没有符合条件的套餐。</td></tr>';
+}
+
+function showComboDetail(id) {
+    startEditCombo(id);
 }
 
 function startEditCombo(id) {
@@ -593,11 +747,12 @@ function startEditCombo(id) {
     comboDescription.value = combo.description;
     comboPrice.value = combo.price;
     comboDiscount.value = combo.discount;
+    comboStatus.value = combo.status || 'active';
     Array.from(comboItems.options).forEach(option => {
         option.selected = combo.items.includes(parseInt(option.value, 10));
     });
     saveCombo.textContent = '更新套餐';
-    showPage('combos');
+    openEditorModal('combo');
 }
 
 function resetComboForm() {
@@ -606,9 +761,8 @@ function resetComboForm() {
     comboDescription.value = '';
     comboPrice.value = '';
     comboDiscount.value = 1.0;
-    Array.from(comboItems.options).forEach(option => {
-        option.selected = false;
-    });
+    comboStatus.value = 'active';
+    Array.from(comboItems.options).forEach(option => { option.selected = false; });
     saveCombo.textContent = '保存套餐';
 }
 
@@ -619,22 +773,20 @@ function saveComboHandler() {
     const price = comboPrice.value;
     const discount = comboDiscount.value;
     const selectedItems = Array.from(comboItems.selectedOptions).map(option => parseInt(option.value, 10));
-
     if (!name || !price || !selectedItems.length) {
         alert('请完整填写套餐信息。');
         return;
     }
-
     const payload = {
         name,
         description,
         price: parseFloat(price),
         discount: parseFloat(discount),
-        items: selectedItems
+        items: selectedItems,
+        status: comboStatus.value
     };
     const url = editingComboId ? `/api/combos/${editingComboId}` : '/api/combos';
     const method = editingComboId ? 'PUT' : 'POST';
-
     fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -647,17 +799,25 @@ function saveComboHandler() {
                 return;
             }
             resetComboForm();
+            closeEditorModal();
             loadCombos();
         });
 }
 
-function deleteCombo(id) {
-    if (!requireMerchantSession()) return;
-    if (!confirm('确定要删除该套餐吗？')) return;
-
+function toggleComboStatus(id) {
+    const combo = comboData.find(item => item.id === id);
+    if (!combo) return;
     fetch(`/api/combos/${id}`, {
-        method: 'DELETE',
-        headers: authHeaders()
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+            name: combo.name,
+            description: combo.description || '',
+            price: combo.price,
+            discount: combo.discount,
+            items: combo.items,
+            status: (combo.status || 'active') === 'active' ? 'inactive' : 'active'
+        })
     })
         .then(response => response.json())
         .then(data => {
@@ -669,42 +829,103 @@ function deleteCombo(id) {
         });
 }
 
+function deleteCombo(id) {
+    if (!requireMerchantSession()) return;
+    if (!confirm('确定要删除该套餐吗？')) return;
+    fetch(`/api/combos/${id}`, { method: 'DELETE', headers: authHeaders() })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            loadCombos();
+        });
+}
+
+function renderOrderDetail(order) {
+    if (!order) {
+        orderDetailContent.innerHTML = '<p>点击某个订单后，在这里查看详情。</p>';
+        return;
+    }
+    const statusActions = {
+        '已接单': ['制作中', '配送中', '已完成', '已取消'],
+        '制作中': ['配送中', '已完成', '已取消'],
+        '配送中': ['已完成'],
+        '已完成': [],
+        '已取消': []
+    };
+    orderDetailContent.innerHTML = `
+        <div class="analysis-list-item"><strong>订单号</strong><span>#${order.id}</span></div>
+        <div class="analysis-list-item"><strong>用户</strong><span>${order.customer}</span></div>
+        <div class="analysis-list-item"><strong>状态</strong><span>${getStatusLabel(order.status)}</span></div>
+        <div class="analysis-list-item"><strong>下单时间</strong><span>${order.created_at}</span></div>
+        <div class="analysis-list-item"><strong>总金额</strong><span>¥${formatPrice(order.total)}</span></div>
+        <div class="analysis-panel"><strong>商品明细</strong><ul class="order-items">${order.items.map(item => `<li>${item.name} × ${item.quantity} = ¥${formatPrice(item.subtotal)}</li>`).join('')}</ul></div>
+        <div class="form-actions-row">
+            ${statusActions[order.status].map(status => `<button class="secondary" onclick="updateOrderStatus(${order.id}, '${status}')">${getStatusLabel(status)}</button>`).join('')}
+        </div>`;
+}
+
 function loadOrders() {
     if (!requireMerchantSession()) return;
     fetch('/api/orders', { headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                merchantOrderList.innerHTML = `<p>${data.error}</p>`;
+                merchantOrderList.innerHTML = `<tr><td colspan="6">${data.error}</td></tr>`;
                 return;
             }
-            renderOrders(data.orders || []);
+            orderData = data.orders || [];
+            renderOrders();
         });
 }
 
-function renderOrders(orders) {
-    if (!orders.length) {
-        merchantOrderList.innerHTML = '<p>暂无订单。</p>';
-        return;
-    }
+function renderOrders() {
+    const keyword = (orderSearchInput.value || '').trim().toLowerCase();
+    const filtered = orderData.filter(order => {
+        const hitStatus = currentOrderStatusFilter === 'all' || order.status === currentOrderStatusFilter;
+        const haystack = [`${order.id}`, order.customer, order.store_name || ''].join(' ').toLowerCase();
+        const hitKeyword = !keyword || haystack.includes(keyword);
+        return hitStatus && hitKeyword;
+    });
 
-    merchantOrderList.innerHTML = orders.slice().reverse().map(order => `
-        <div class="order-card">
-            <h4>订单 #${order.id} - ${order.customer}</h4>
-            <small>状态: ${order.status} · 下单时间: ${order.created_at}</small>
-            <ul class="order-items">
-                ${order.items.map(item => `<li>${item.name} × ${item.quantity} = ¥${formatPrice(item.subtotal)}</li>`).join('')}
-            </ul>
-            <div class="order-summary">总价：¥${formatPrice(order.total)}</div>
-            ${order.status === '已接单' ? `<button class="primary" onclick="completeOrder(${order.id})">标记完成</button>` : ''}
-        </div>`).join('');
+    merchantOrderList.innerHTML = filtered.length ? filtered.slice().reverse().map(order => `
+        <tr class="${currentOrderDetailId === order.id ? 'is-selected-row' : ''}">
+            <td>#${order.id}</td>
+            <td>${order.customer}</td>
+            <td><span class="service-tag">${getStatusLabel(order.status)}</span></td>
+            <td>¥${formatPrice(order.total)}</td>
+            <td>${order.created_at}</td>
+            <td>
+                <div class="table-actions">
+                    <button class="secondary" onclick="selectOrderDetail(${order.id})">查看详情</button>
+                    ${order.status !== '已完成' && order.status !== '已取消' ? `<button class="secondary" onclick="updateOrderStatus(${order.id}, '${order.status === '已接单' ? '制作中' : order.status === '制作中' ? '配送中' : '已完成'}')">推进状态</button>` : ''}
+                </div>
+            </td>
+        </tr>`).join('') : '<tr><td colspan="6">暂无符合条件的订单。</td></tr>';
+
+    if (!currentOrderDetailId && filtered.length) {
+        selectOrderDetail(filtered[filtered.length - 1].id, false);
+    } else if (!filtered.some(order => order.id === currentOrderDetailId)) {
+        currentOrderDetailId = null;
+        renderOrderDetail(null);
+    }
 }
 
-function completeOrder(orderId) {
+function selectOrderDetail(orderId, rerender = true) {
+    currentOrderDetailId = orderId;
+    const order = orderData.find(item => item.id === orderId) || null;
+    renderOrderDetail(order);
+    if (rerender) renderOrders();
+}
+
+function updateOrderStatus(orderId, status) {
     if (!requireMerchantSession()) return;
-    fetch(`/api/order/${orderId}/complete`, {
+    fetch(`/api/order/${orderId}/status`, {
         method: 'POST',
-        headers: authHeaders()
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ status })
     })
         .then(response => response.json())
         .then(data => {
@@ -716,6 +937,10 @@ function completeOrder(orderId) {
             loadOrders();
             loadStore();
         });
+}
+
+function completeOrder(orderId) {
+    updateOrderStatus(orderId, '已完成');
 }
 
 itemImage.addEventListener('change', event => {
@@ -759,6 +984,28 @@ resetCombo.addEventListener('click', resetComboForm);
 saveStoreBtn.addEventListener('click', saveStore);
 resetStoreBtn.addEventListener('click', fillStoreForm);
 merchantLogoutBtn.addEventListener('click', () => logout());
+openCategoryModalBtn.addEventListener('click', () => { resetCategoryForm(); openEditorModal('category'); });
+openProductModalBtn.addEventListener('click', () => { resetForm(); openEditorModal('product'); });
+openComboModalBtn.addEventListener('click', () => { resetComboForm(); openEditorModal('combo'); });
+closeMerchantEditorModal.addEventListener('click', closeEditorModal);
+merchantEditorModal.addEventListener('click', event => {
+    if (event.target === merchantEditorModal) closeEditorModal();
+});
+categorySearchInput.addEventListener('input', renderCategories);
+categoryStatusFilter.addEventListener('change', renderCategories);
+productSearchInput.addEventListener('input', renderProducts);
+productCategoryFilter.addEventListener('change', renderProducts);
+productStatusFilter.addEventListener('change', renderProducts);
+comboSearchInput.addEventListener('input', renderCombos);
+comboStatusFilter.addEventListener('change', renderCombos);
+orderSearchInput.addEventListener('input', renderOrders);
+orderStatusTabs.querySelectorAll('.status-tab').forEach(button => {
+    button.addEventListener('click', () => {
+        currentOrderStatusFilter = button.dataset.orderStatus || 'all';
+        orderStatusTabs.querySelectorAll('.status-tab').forEach(item => item.classList.toggle('active', item === button));
+        renderOrders();
+    });
+});
 
 window.startEdit = startEdit;
 window.deleteProduct = deleteProduct;
@@ -767,9 +1014,18 @@ window.deleteCategory = deleteCategory;
 window.startEditCombo = startEditCombo;
 window.deleteCombo = deleteCombo;
 window.completeOrder = completeOrder;
+window.showProductDetail = showProductDetail;
+window.showCategoryDetail = showCategoryDetail;
+window.showComboDetail = showComboDetail;
+window.toggleProductStatus = toggleProductStatus;
+window.toggleCategoryStatus = toggleCategoryStatus;
+window.toggleComboStatus = toggleComboStatus;
+window.selectOrderDetail = selectOrderDetail;
+window.updateOrderStatus = updateOrderStatus;
 
 window.addEventListener('load', () => {
     bindSidebarNavigation();
     showPage('dashboard');
+    renderOrderDetail(null);
     checkLoginStatus();
 });

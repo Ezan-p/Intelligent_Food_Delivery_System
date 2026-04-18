@@ -336,6 +336,9 @@ next_review_id = counters.get('next_review_id', 1)
 
 user_sessions = {}  # session_id -> {"user_id": int, "role": str}
 
+ACTIVE_RECORD_STATUSES = ("active", "inactive")
+MERCHANT_ORDER_STATUSES = ("已接单", "制作中", "配送中", "已完成", "已取消")
+
 def refresh_runtime_data_from_disk(force=False):
     global app_data, stores, categories, menu, combos, orders, reviews, users, counters
     global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, next_store_id, next_review_id, DATA_FILE_MTIME
@@ -488,6 +491,9 @@ def filter_records_by_store(records, store_id):
         return list(records)
     return [record for record in records if record.get('store_id') == store_id]
 
+def filter_active_records(records):
+    return [record for record in records if record.get('status', 'active') == 'active']
+
 def normalize_users():
     """补齐历史数据中的用户角色字段。"""
     changed = False
@@ -588,6 +594,9 @@ def normalize_stores_and_relations():
         if not category.get('store_id') and primary_store_id:
             category['store_id'] = primary_store_id
             changed = True
+        if category.get('status') not in ACTIVE_RECORD_STATUSES:
+            category['status'] = 'active'
+            changed = True
 
     for item in menu:
         if not item.get('store_id'):
@@ -600,12 +609,18 @@ def normalize_stores_and_relations():
             elif primary_store_id:
                 item['store_id'] = primary_store_id
             changed = True
+        if item.get('status') not in ACTIVE_RECORD_STATUSES:
+            item['status'] = 'active'
+            changed = True
 
     for combo in combos:
         if not combo.get('store_id'):
             first_item_id = (combo.get('items') or [None])[0]
             combo_item = next((item for item in menu if item.get('id') == first_item_id), None)
             combo['store_id'] = combo_item.get('store_id') if combo_item else primary_store_id
+            changed = True
+        if combo.get('status') not in ACTIVE_RECORD_STATUSES:
+            combo['status'] = 'active'
             changed = True
 
     for order in orders:
@@ -622,6 +637,9 @@ def normalize_stores_and_relations():
             if store:
                 order['store_name'] = store.get('name')
                 changed = True
+        if order.get('status') not in MERCHANT_ORDER_STATUSES:
+            order['status'] = '已接单'
+            changed = True
 
     for store in stores:
         if store.get("status") not in ("active", "inactive"):
@@ -659,9 +677,10 @@ def normalize_stores_and_relations():
 
             store_categories = [
                 {"id": next_category_id, "name": "沙拉轻食", "store_id": store["id"]},
-                {"id": next_category_id + 1, "name": "能量主食", "store_id": store["id"]},
-                {"id": next_category_id + 2, "name": "饮品", "store_id": store["id"]}
+                {"id": next_category_id + 1, "name": "能量主食", "store_id": store["id"], "status": "active"},
+                {"id": next_category_id + 2, "name": "饮品", "store_id": store["id"], "status": "active"}
             ]
+            store_categories[0]["status"] = "active"
             categories.extend(store_categories)
             next_category_id += 3
 
@@ -673,7 +692,8 @@ def normalize_stores_and_relations():
                     "price": 26.0,
                     "category_id": store_categories[0]["id"],
                     "store_id": store["id"],
-                    "image": None
+                    "image": None,
+                    "status": "active"
                 },
                 {
                     "id": next_menu_id + 1,
@@ -682,7 +702,8 @@ def normalize_stores_and_relations():
                     "price": 24.0,
                     "category_id": store_categories[1]["id"],
                     "store_id": store["id"],
-                    "image": None
+                    "image": None,
+                    "status": "active"
                 },
                 {
                     "id": next_menu_id + 2,
@@ -691,7 +712,8 @@ def normalize_stores_and_relations():
                     "price": 12.0,
                     "category_id": store_categories[2]["id"],
                     "store_id": store["id"],
-                    "image": None
+                    "image": None,
+                    "status": "active"
                 }
             ]
             menu.extend(store_menu)
@@ -704,7 +726,8 @@ def normalize_stores_and_relations():
                 "price": 58.0,
                 "items": [store_menu[0]["id"], store_menu[1]["id"], store_menu[2]["id"]],
                 "discount": 0.92,
-                "store_id": store["id"]
+                "store_id": store["id"],
+                "status": "active"
             })
             next_combo_id += 1
             changed = True
@@ -1110,7 +1133,10 @@ def get_categories():
     store_id = get_store_id_for_request(user, allow_all_for_admin=True)
     if user.get('role') == 'customer' and not store_id:
         return jsonify({"error": "请选择店铺后再查看分类。"}), 400
-    return jsonify({"categories": filter_records_by_store(categories, store_id)})
+    scoped_categories = filter_records_by_store(categories, store_id)
+    if user.get('role') == 'customer':
+        scoped_categories = filter_active_records(scoped_categories)
+    return jsonify({"categories": scoped_categories})
 
 @app.route('/api/stores', methods=['GET'])
 def get_stores():
@@ -1210,7 +1236,8 @@ def add_category():
     category = {
         "id": next_category_id,
         "name": name,
-        "store_id": store_id
+        "store_id": store_id,
+        "status": "active"
     }
     categories.append(category)
     next_category_id += 1
@@ -1229,10 +1256,14 @@ def update_category(category_id):
         return jsonify({"error": "未找到该分类。"}), 404
 
     name = data.get('name', '').strip()
+    status = data.get('status', category.get('status', 'active'))
     if not name:
         return jsonify({"error": "分类名称不能为空。"}), 400
+    if status not in ACTIVE_RECORD_STATUSES:
+        return jsonify({"error": "分类状态不合法。"}), 400
 
     category['name'] = name
+    category['status'] = status
     persist_data()
     return jsonify({"category": category})
 
@@ -1266,6 +1297,8 @@ def get_menu():
         return jsonify({"error": "请选择店铺后再查看菜品。"}), 400
     category_id = request.args.get('category_id', type=int)
     scoped_menu = filter_records_by_store(menu, store_id)
+    if user.get('role') == 'customer':
+        scoped_menu = filter_active_records(scoped_menu)
     if category_id:
         filtered_menu = [item for item in scoped_menu if item['category_id'] == category_id]
         return jsonify({"menu": filtered_menu})
@@ -1286,6 +1319,7 @@ def add_menu_item():
     price = data.get('price')
     category_id = data.get('category_id')
     image = data.get('image')
+    status = data.get('status', 'active')
 
     if not name:
         return jsonify({"error": "商品名称不能为空。"}), 400
@@ -1300,6 +1334,9 @@ def add_menu_item():
     except (TypeError, ValueError):
         return jsonify({"error": "请输入合法的价格和分类。"}), 400
 
+    if status not in ACTIVE_RECORD_STATUSES:
+        return jsonify({"error": "商品状态不合法。"}), 400
+
     if not any(cat['id'] == category_id and cat.get('store_id') == store_id for cat in categories):
         return jsonify({"error": "选择的分类不存在。"}), 400
 
@@ -1310,7 +1347,8 @@ def add_menu_item():
         "price": round(price, 2),
         "category_id": category_id,
         "store_id": store_id,
-        "image": image
+        "image": image,
+        "status": status
     }
     menu.append(item)
     next_menu_id += 1
@@ -1333,6 +1371,7 @@ def update_menu_item(item_id):
     price = data.get('price')
     category_id = data.get('category_id')
     image = data.get('image')
+    status = data.get('status', item.get('status', 'active'))
 
     if not name:
         return jsonify({"error": "商品名称不能为空。"}), 400
@@ -1347,6 +1386,9 @@ def update_menu_item(item_id):
     except (TypeError, ValueError):
         return jsonify({"error": "请输入合法的价格和分类。"}), 400
 
+    if status not in ACTIVE_RECORD_STATUSES:
+        return jsonify({"error": "商品状态不合法。"}), 400
+
     if not any(cat['id'] == category_id and cat.get('store_id') == item.get('store_id') for cat in categories):
         return jsonify({"error": "选择的分类不存在。"}), 400
 
@@ -1354,6 +1396,7 @@ def update_menu_item(item_id):
     item['description'] = description
     item['price'] = round(price, 2)
     item['category_id'] = category_id
+    item['status'] = status
     if image:
         item['image'] = image
     item['price'] = round(price, 2)
@@ -1384,7 +1427,10 @@ def get_combos():
     store_id = get_store_id_for_request(user, allow_all_for_admin=True)
     if user.get('role') == 'customer' and not store_id:
         return jsonify({"error": "请选择店铺后再查看套餐。"}), 400
-    return jsonify({"combos": filter_records_by_store(combos, store_id)})
+    scoped_combos = filter_records_by_store(combos, store_id)
+    if user.get('role') == 'customer':
+        scoped_combos = filter_active_records(scoped_combos)
+    return jsonify({"combos": scoped_combos})
 
 @app.route('/api/combos', methods=['POST'])
 def add_combo():
@@ -1401,6 +1447,7 @@ def add_combo():
     price = data.get('price')
     items = data.get('items', [])
     discount = data.get('discount', 1.0)
+    status = data.get('status', 'active')
 
     if not name:
         return jsonify({"error": "套餐名称不能为空。"}), 400
@@ -1416,6 +1463,9 @@ def add_combo():
     except (TypeError, ValueError):
         return jsonify({"error": "请输入合法的价格和商品ID。"}), 400
 
+    if status not in ACTIVE_RECORD_STATUSES:
+        return jsonify({"error": "套餐状态不合法。"}), 400
+
     # 验证商品存在
     for item_id in items:
         if not any(m['id'] == item_id and m.get('store_id') == store_id for m in menu):
@@ -1428,7 +1478,8 @@ def add_combo():
         "price": round(price, 2),
         "items": items,
         "discount": discount,
-        "store_id": store_id
+        "store_id": store_id,
+        "status": status
     }
     combos.append(combo)
     next_combo_id += 1
@@ -1451,6 +1502,7 @@ def update_combo(combo_id):
     price = data.get('price')
     items = data.get('items', [])
     discount = data.get('discount', 1.0)
+    status = data.get('status', combo.get('status', 'active'))
 
     if not name:
         return jsonify({"error": "套餐名称不能为空。"}), 400
@@ -1466,6 +1518,9 @@ def update_combo(combo_id):
     except (TypeError, ValueError):
         return jsonify({"error": "请输入合法的价格和商品ID。"}), 400
 
+    if status not in ACTIVE_RECORD_STATUSES:
+        return jsonify({"error": "套餐状态不合法。"}), 400
+
     # 验证商品存在
     for item_id in items:
         if not any(m['id'] == item_id and m.get('store_id') == combo.get('store_id') for m in menu):
@@ -1476,6 +1531,7 @@ def update_combo(combo_id):
     combo['price'] = round(price, 2)
     combo['items'] = items
     combo['discount'] = discount
+    combo['status'] = status
     persist_data()
     return jsonify({"combo": combo})
 
@@ -1505,7 +1561,7 @@ def get_dashboard():
     scoped_combos = filter_records_by_store(combos, store_id)
     total_orders = len(scoped_orders)
     total_revenue = sum(order['total'] for order in scoped_orders if order['status'] == '已完成')
-    pending_orders = len([o for o in scoped_orders if o['status'] == '已接单'])
+    pending_orders = len([o for o in scoped_orders if o['status'] in ('已接单', '制作中', '配送中')])
     completed_orders = len([o for o in scoped_orders if o['status'] == '已完成'])
     cancelled_orders = len([o for o in scoped_orders if o['status'] == '已取消'])
 
@@ -1660,6 +1716,42 @@ def complete_order(order_id):
         return jsonify({"error": "该订单无法标记为已完成。"}), 400
 
     order['status'] = '已完成'
+    persist_data()
+    return jsonify({"order": order})
+
+@app.route('/api/order/<int:order_id>/status', methods=['POST'])
+def update_order_status(order_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    order = next((o for o in orders if o['id'] == order_id), None)
+    if not order:
+        return jsonify({"error": "未找到该订单。"}), 404
+    if user.get('role') == 'merchant':
+        merchant_store = get_user_store(user)
+        if not merchant_store or order.get('store_id') != merchant_store.get('id'):
+            return jsonify({"error": "无权处理其他店铺订单。"}), 403
+
+    data = request.get_json() or {}
+    target_status = str(data.get('status', '')).strip()
+    if target_status not in MERCHANT_ORDER_STATUSES:
+        return jsonify({"error": "订单状态不合法。"}), 400
+
+    current_status = order.get('status')
+    allowed_transitions = {
+        '已接单': {'制作中', '配送中', '已完成', '已取消'},
+        '制作中': {'配送中', '已完成', '已取消'},
+        '配送中': {'已完成'},
+        '已完成': set(),
+        '已取消': set()
+    }
+
+    if target_status == current_status:
+        return jsonify({"order": order})
+    if target_status not in allowed_transitions.get(current_status, set()):
+        return jsonify({"error": f"订单当前状态为 {current_status}，无法更新为 {target_status}。"}), 400
+
+    order['status'] = target_status
     persist_data()
     return jsonify({"order": order})
 
@@ -2181,17 +2273,65 @@ def build_local_analysis_payload(store_id=None):
     scoped_combos = filter_records_by_store(combos, store_id)
     total_orders = len(scoped_orders)
     completed_orders = [order for order in scoped_orders if order.get('status') == '已完成']
-    pending_orders = [order for order in scoped_orders if order.get('status') == '已接单']
+    pending_orders = [order for order in scoped_orders if order.get('status') in ('已接单', '制作中', '配送中')]
     cancelled_orders = [order for order in scoped_orders if order.get('status') == '已取消']
     total_revenue = round(sum(float(order.get('total', 0)) for order in completed_orders), 2)
     average_order_value = round(total_revenue / len(completed_orders), 2) if completed_orders else 0.0
     item_sales = get_order_item_sales(store_id=store_id)
     top_items = item_sales[:5]
+    completed_customer_counts = {}
+    for order in completed_orders:
+        customer = order.get('customer', '')
+        if not customer:
+            continue
+        completed_customer_counts[customer] = completed_customer_counts.get(customer, 0) + 1
+    repurchase_customers = len([count for count in completed_customer_counts.values() if count >= 2])
+    repurchase_rate = round((repurchase_customers / len(completed_customer_counts)) * 100, 2) if completed_customer_counts else 0.0
+
+    order_trend_map = {}
+    for order in scoped_orders:
+        created_at = str(order.get('created_at', ''))
+        day_key = created_at[:10] if len(created_at) >= 10 else '未知日期'
+        order_trend_map[day_key] = order_trend_map.get(day_key, 0) + 1
+    order_trend = [
+        {"label": label, "value": value}
+        for label, value in sorted(order_trend_map.items())[-7:]
+    ]
+
+    time_slot_map = {
+        '早餐': 0,
+        '午餐': 0,
+        '下午茶': 0,
+        '晚餐': 0,
+        '夜宵': 0
+    }
+    for order in scoped_orders:
+        created_at = str(order.get('created_at', ''))
+        hour = None
+        if len(created_at) >= 13:
+            try:
+                hour = int(created_at[11:13])
+            except ValueError:
+                hour = None
+        if hour is None:
+            continue
+        if 6 <= hour < 10:
+            time_slot_map['早餐'] += 1
+        elif 10 <= hour < 14:
+            time_slot_map['午餐'] += 1
+        elif 14 <= hour < 17:
+            time_slot_map['下午茶'] += 1
+        elif 17 <= hour < 21:
+            time_slot_map['晚餐'] += 1
+        else:
+            time_slot_map['夜宵'] += 1
+    time_distribution = [{"label": label, "value": value} for label, value in time_slot_map.items()]
 
     insights = []
     if top_items:
         insights.append(f"当前销量最高的是 {top_items[0]['name']}，累计售出 {top_items[0]['quantity']} 份。")
     insights.append(f"已完成订单 {len(completed_orders)} 单，平均客单价 ¥{average_order_value:.2f}。")
+    insights.append(f"复购率约为 {repurchase_rate:.2f}%，可重点维护重复下单用户。")
     if pending_orders:
         insights.append(f"还有 {len(pending_orders)} 单待处理，建议关注出餐和配送节奏。")
     if cancelled_orders:
@@ -2202,21 +2342,39 @@ def build_local_analysis_payload(store_id=None):
         "对低销量商品做限时活动或重新优化描述、图片和定价。",
         "高峰时段前提前备货，减少待处理订单积压。"
     ]
+    risks = []
+    if cancelled_orders and total_orders and (len(cancelled_orders) / total_orders) >= 0.2:
+        risks.append("取消订单占比较高，建议排查出餐时效、配送稳定性和商品描述一致性。")
+    if pending_orders and len(pending_orders) >= 5:
+        risks.append("当前待处理订单偏多，高峰承载压力较大，需关注履约节奏。")
+    if repurchase_rate < 20 and completed_orders:
+        risks.append("复购率偏低，建议加强会员运营、回购优惠和招牌商品复购引导。")
+    if not risks:
+        risks.append("当前未发现明显高风险项，可持续观察订单取消率和高峰时段波动。")
 
     return {
         "stats": {
             "total_orders": total_orders,
+            "order_volume": total_orders,
             "completed_orders": len(completed_orders),
             "pending_orders": len(pending_orders),
             "cancelled_orders": len(cancelled_orders),
             "total_revenue": total_revenue,
+            "revenue": total_revenue,
             "average_order_value": average_order_value,
+            "repurchase_rate": repurchase_rate,
             "menu_count": len(scoped_menu),
             "combo_count": len(scoped_combos)
         },
         "top_items": top_items,
+        "charts": {
+            "order_trend": order_trend,
+            "top_items": top_items,
+            "time_distribution": time_distribution
+        },
         "insights": insights,
-        "suggestions": suggestions
+        "suggestions": suggestions,
+        "risks": risks
     }
 
 # 地址管理
@@ -2391,13 +2549,14 @@ def get_data_analysis():
 
     prompt = (
         "你是餐饮经营分析助手。请基于以下经营数据输出 3 条核心洞察和 3 条经营建议，"
-        "语言简洁，适合商家直接查看。\n"
+        "并补充风险提示，语言简洁，适合商家直接查看。\n"
         f"总订单：{analysis_payload['stats']['total_orders']}\n"
         f"已完成订单：{analysis_payload['stats']['completed_orders']}\n"
         f"待处理订单：{analysis_payload['stats']['pending_orders']}\n"
         f"已取消订单：{analysis_payload['stats']['cancelled_orders']}\n"
         f"总营收：¥{analysis_payload['stats']['total_revenue']:.2f}\n"
         f"平均客单价：¥{analysis_payload['stats']['average_order_value']:.2f}\n"
+        f"复购率：{analysis_payload['stats']['repurchase_rate']:.2f}%\n"
         f"热销商品：{top_items_text}"
     )
 

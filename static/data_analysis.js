@@ -1,10 +1,13 @@
 const refreshAnalysisBtn = document.getElementById('refreshAnalysis');
 const analysisStats = document.getElementById('analysisStats');
 const topItems = document.getElementById('topItems');
+const orderTrendChart = document.getElementById('orderTrendChart');
+const timeDistributionChart = document.getElementById('timeDistributionChart');
 const analysisSource = document.getElementById('analysisSource');
 const analysisSummary = document.getElementById('analysisSummary');
 const analysisInsights = document.getElementById('analysisInsights');
 const analysisSuggestions = document.getElementById('analysisSuggestions');
+const analysisRisks = document.getElementById('analysisRisks');
 
 const STORAGE_PREFIX = 'merchant';
 
@@ -19,22 +22,23 @@ function formatPrice(value) {
 
 function renderStats(stats) {
     analysisStats.innerHTML = `
-        <div class="stat-card"><h3>总订单</h3><div class="stat-value">${stats.total_orders}</div></div>
-        <div class="stat-card"><h3>已完成</h3><div class="stat-value">${stats.completed_orders}</div></div>
-        <div class="stat-card"><h3>待处理</h3><div class="stat-value">${stats.pending_orders}</div></div>
-        <div class="stat-card"><h3>已取消</h3><div class="stat-value">${stats.cancelled_orders}</div></div>
-        <div class="stat-card"><h3>总营收</h3><div class="stat-value">¥${formatPrice(stats.total_revenue)}</div></div>
-        <div class="stat-card"><h3>平均客单价</h3><div class="stat-value">¥${formatPrice(stats.average_order_value)}</div></div>
-        <div class="stat-card"><h3>商品数量</h3><div class="stat-value">${stats.menu_count}</div></div>
-        <div class="stat-card"><h3>套餐数量</h3><div class="stat-value">${stats.combo_count}</div></div>`;
+        <div class="stat-card"><h3>营业额</h3><div class="stat-value">¥${formatPrice(stats.revenue)}</div></div>
+        <div class="stat-card"><h3>订单量</h3><div class="stat-value">${stats.order_volume}</div></div>
+        <div class="stat-card"><h3>客单价</h3><div class="stat-value">¥${formatPrice(stats.average_order_value)}</div></div>
+        <div class="stat-card"><h3>复购率</h3><div class="stat-value">${Number(stats.repurchase_rate || 0).toFixed(2)}%</div></div>`;
 }
 
-function renderTopItems(items) {
-    topItems.innerHTML = items.length
+function renderBarList(container, items, formatter) {
+    container.innerHTML = items.length
         ? items.map(item => `
             <div class="analysis-list-item">
-                <strong>${item.name}</strong>
-                <span>销量 ${item.quantity} · 营收 ¥${formatPrice(item.revenue)}</span>
+                <div class="chart-row-head">
+                    <strong>${item.label || item.name}</strong>
+                    <span>${formatter(item)}</span>
+                </div>
+                <div class="chart-bar-track">
+                    <div class="chart-bar-fill" style="width: ${Math.min(100, Number(item.percent || 0))}%"></div>
+                </div>
             </div>`).join('')
         : '<p>暂无订单数据。</p>';
 }
@@ -59,10 +63,28 @@ async function loadAnalysis() {
             throw new Error(data.error || '分析加载失败');
         }
 
-        renderStats(data.stats || {});
-        renderTopItems(data.top_items || []);
+        const stats = data.stats || {};
+        const charts = data.charts || {};
+        const trendData = (charts.order_trend || []).map(item => ({
+            ...item,
+            percent: Math.max(...(charts.order_trend || []).map(entry => Number(entry.value || 0)), 1) ? (Number(item.value || 0) / Math.max(...(charts.order_trend || []).map(entry => Number(entry.value || 0)), 1)) * 100 : 0
+        }));
+        const topItemsData = (charts.top_items || []).map(item => ({
+            ...item,
+            percent: Math.max(...(charts.top_items || []).map(entry => Number(entry.quantity || 0)), 1) ? (Number(item.quantity || 0) / Math.max(...(charts.top_items || []).map(entry => Number(entry.quantity || 0)), 1)) * 100 : 0
+        }));
+        const timeData = (charts.time_distribution || []).map(item => ({
+            ...item,
+            percent: Math.max(...(charts.time_distribution || []).map(entry => Number(entry.value || 0)), 1) ? (Number(item.value || 0) / Math.max(...(charts.time_distribution || []).map(entry => Number(entry.value || 0)), 1)) * 100 : 0
+        }));
+
+        renderStats(stats);
+        renderBarList(orderTrendChart, trendData, item => `${item.value} 单`);
+        renderBarList(topItems, topItemsData, item => `销量 ${item.quantity} · ¥${formatPrice(item.revenue)}`);
+        renderBarList(timeDistributionChart, timeData, item => `${item.value} 单`);
         renderTextList(analysisInsights, data.insights || []);
         renderTextList(analysisSuggestions, data.suggestions || []);
+        renderTextList(analysisRisks, data.risks || []);
         analysisSummary.textContent = data.ai_summary || '暂无分析摘要。';
         analysisSource.textContent = data.source === 'remote_api'
             ? '当前结果由 AI 经营分析生成'
@@ -72,8 +94,11 @@ async function loadAnalysis() {
         analysisSummary.textContent = error.message || '服务暂时不可用。';
         analysisStats.innerHTML = '';
         topItems.innerHTML = '';
+        orderTrendChart.innerHTML = '';
+        timeDistributionChart.innerHTML = '';
         analysisInsights.innerHTML = '';
         analysisSuggestions.innerHTML = '';
+        analysisRisks.innerHTML = '';
     } finally {
         refreshAnalysisBtn.disabled = false;
     }

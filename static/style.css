@@ -541,6 +541,19 @@ button.service-card {
     border-radius: 12px;
     padding: 18px;
 }
+.analysis-panel-wide {
+    grid-column: 1 / -1;
+}
+.analysis-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+}
+.analysis-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
+}
 .analysis-summary {
     color: #64748b;
     margin: 8px 0 14px;
@@ -578,6 +591,34 @@ button.service-card {
     display: flex;
     flex-direction: column;
     gap: 4px;
+}
+.chart-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.chart-row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+.chart-row-head span {
+    color: #64748b;
+    font-size: 13px;
+    white-space: nowrap;
+}
+.chart-bar-track {
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    overflow: hidden;
+}
+.chart-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #f97316 0%, #fb923c 100%);
 }
 .section-header-row {
     display: flex;
@@ -1213,6 +1254,152 @@ button.secondary {
     margin-top: 16px;
 }
 
+.management-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.management-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
+
+.management-toolbar {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.management-toolbar input,
+.management-toolbar select {
+    min-width: 220px;
+    padding: 10px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    background: #fff;
+    font-size: 14px;
+}
+
+.management-table-wrap {
+    overflow: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    background: #fff;
+}
+
+.management-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 760px;
+}
+
+.management-table th,
+.management-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid #eef2f7;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.management-table th {
+    background: #f8fafc;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.table-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.table-item-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.table-item-main strong,
+.table-item-stack strong {
+    display: block;
+    color: #0f172a;
+}
+
+.table-item-main small,
+.table-item-stack small {
+    display: block;
+    color: #64748b;
+    margin-top: 4px;
+}
+
+.table-thumb {
+    width: 52px;
+    height: 52px;
+    border-radius: 12px;
+    object-fit: cover;
+    background: #f1f5f9;
+}
+
+.table-thumb-empty {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.status-tab-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.status-tab {
+    padding: 10px 16px;
+    border-radius: 999px;
+    border: 1px solid #dbe5f3;
+    background: #fff;
+    color: #475569;
+}
+
+.status-tab.active {
+    background: #eff6ff;
+    color: #2563eb;
+    border-color: #bfdbfe;
+}
+
+.merchant-order-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 18px;
+}
+
+.order-detail-panel {
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    background: #fff;
+    padding: 18px;
+    position: sticky;
+    top: 24px;
+    height: fit-content;
+}
+
+.is-selected-row {
+    background: #fff7ed;
+}
+
+.merchant-modal-card {
+    width: min(100%, 860px);
+}
+
+.merchant-editor-form {
+    margin-top: 8px;
+}
+
 .app-toast {
     position: fixed;
     right: 20px;
@@ -1241,5 +1428,13 @@ button.secondary {
 @media (max-width: 960px) {
     .store-management-layout {
         grid-template-columns: 1fr;
+    }
+
+    .merchant-order-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .order-detail-panel {
+        position: static;
     }
 }
