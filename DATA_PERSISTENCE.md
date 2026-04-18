@@ -33,13 +33,13 @@
 
 ### 1. 首次启动
 ```bash
-python3 app.py 5001
+python3 run_portals.py
 ```
 - 若 `data/app_data.json` 不存在，应用会自动创建
 - 初始数据包含 4 个分类和 5 个菜单项
 
 ### 2. 数据操作
-访问商家端 (http://localhost:5001/merchant) 进行以下操作：
+访问商家端 (http://localhost:5002/) 进行以下操作：
 
 #### 商品管理
 - ✅ **添加商品**: 在商品列表中点击"添加"，新商品会立即保存
@@ -63,7 +63,7 @@ python3 app.py 5001
 
 ### 3. 重启验证
 1. 关闭应用 (Ctrl+C)
-2. 重新启动应用 `python3 app.py 5001`
+2. 重新启动应用 `python3 run_portals.py`
 3. 访问商家端或客户端，验证所有数据已保留
 
 ## 工作流程
@@ -123,7 +123,7 @@ cp data/app_data_backup.json data/app_data.json
 **A**: 
 ```bash
 rm data/app_data.json
-python3 app.py 5001
+python3 run_portals.py
 ```
 
 ## 相关文件

@@ -9,92 +9,250 @@
 <body>
     <header>
         <h1>商家端</h1>
-        <p>管理商品、分类、套餐和查看统计数据。</p>
+        <p>管理店铺资料、商品、套餐、订单与经营分析。</p>
         <nav class="page-nav">
-            <a class="nav-link" href="/">客户端</a>
-            <a class="nav-link active" href="/merchant">商家端</a>
-            <a class="nav-link" href="/chat">AI客服</a>
+            <a class="nav-link" href="{{ customer_url }}">客户端</a>
+            <a class="nav-link active" href="{{ merchant_url }}">商家端</a>
+            <a class="nav-link" href="{{ admin_url }}">后台管理端</a>
+            <a class="nav-link" href="{{ chat_url }}">AI客服</a>
+            <div id="merchantNav" style="margin-left: auto;">
+                <a id="merchantLoginLink" class="nav-link" href="/login">商家登录</a>
+                <span id="merchantUserInfo" style="display: none; color: #e2e8f0; padding: 8px 16px;">
+                    商家：<span id="merchantUsername"></span>
+                    <button id="merchantLogoutBtn" class="nav-link" style="background: none; border: none; padding: 0; margin-left: 12px;">退出</button>
+                </span>
+            </div>
         </nav>
     </header>
 
-    <main>
-        <section class="dashboard-section">
-            <h2>工作台</h2>
-            <div id="dashboardStats" class="stats-grid"></div>
-        </section>
+    <div class="container-with-sidebar">
+        <aside class="sidebar">
+            <nav class="sidebar-menu">
+                <button class="menu-item active" data-page="dashboard">
+                    <span class="icon">📊</span>
+                    <span>工作台</span>
+                </button>
+                <button class="menu-item" data-page="store">
+                    <span class="icon">🏪</span>
+                    <span>店铺管理</span>
+                </button>
+                <button class="menu-item" data-page="categories">
+                    <span class="icon">🗂</span>
+                    <span>分类管理</span>
+                </button>
+                <button class="menu-item" data-page="products">
+                    <span class="icon">🍱</span>
+                    <span>商品管理</span>
+                </button>
+                <button class="menu-item" data-page="combos">
+                    <span class="icon">🥗</span>
+                    <span>套餐管理</span>
+                </button>
+                <button class="menu-item" data-page="orders">
+                    <span class="icon">🧾</span>
+                    <span>订单列表</span>
+                </button>
+                <button class="menu-item" data-page="services">
+                    <span class="icon">🤖</span>
+                    <span>智能服务</span>
+                </button>
+            </nav>
+        </aside>
 
-        <section class="category-section">
-            <h2>商品分类管理</h2>
-            <div class="category-form">
-                <label>分类名称
-                    <input type="text" id="categoryName" placeholder="请输入分类名称" />
-                </label>
-                <button id="saveCategory" class="primary">保存分类</button>
-                <button id="resetCategory" class="secondary">重置</button>
-            </div>
-            <div id="categoryList" class="category-list"></div>
-        </section>
+        <main class="main-content">
+            <section class="page active" id="page-dashboard">
+                <div class="section-header-row">
+                    <div>
+                        <h2>商家工作台</h2>
+                        <p class="analysis-summary">查看当前店铺核心经营指标。</p>
+                    </div>
+                    <div id="merchantStoreName" class="service-tag">{{ current_user.store_name or '未配置店铺名称' }}</div>
+                </div>
+                <div id="dashboardStats" class="stats-grid"></div>
+            </section>
 
-        <section class="admin-section">
-            <h2>商品管理</h2>
-            <div class="product-form">
-                <label>名称
-                    <input type="text" id="itemName" placeholder="请输入商品名称" />
-                </label>
-                <label>描述
-                    <input type="text" id="itemDescription" placeholder="请输入商品描述" />
-                </label>
-                <label>价格
-                    <input type="number" id="itemPrice" placeholder="请输入价格" step="0.01" />
-                </label>
-                <label>分类
-                    <select id="itemCategory">
-                        <option value="">请选择分类</option>
-                    </select>
-                </label>
-                <label>商品图片
-                    <input type="file" id="itemImage" accept="image/*" />
-                </label>
-                <div id="imagePreview" class="image-preview"></div>
-                <button id="saveItem" class="primary">保存商品</button>
-                <button id="resetItem" class="secondary">重置</button>
-            </div>
+            <section class="page" id="page-store">
+                <div class="section-header-row">
+                    <div>
+                        <h2>店铺管理</h2>
+                        <p class="analysis-summary">维护用户端展示的店铺首页卡片信息。</p>
+                    </div>
+                </div>
 
-            <div id="productList" class="menu-grid"></div>
-        </section>
+                <div id="storePreviewCard" class="service-card"></div>
 
-        <section class="combo-section">
-            <h2>套餐管理</h2>
-            <div class="combo-form">
-                <label>套餐名称
-                    <input type="text" id="comboName" placeholder="请输入套餐名称" />
-                </label>
-                <label>描述
-                    <input type="text" id="comboDescription" placeholder="请输入套餐描述" />
-                </label>
-                <label>价格
-                    <input type="number" id="comboPrice" placeholder="请输入价格" step="0.01" />
-                </label>
-                <label>折扣
-                    <input type="number" id="comboDiscount" placeholder="折扣比例" step="0.1" value="1.0" min="0.1" max="1.0" />
-                </label>
-                <label>选择商品
-                    <select id="comboItems" multiple size="5">
-                        <!-- 商品选项将动态加载 -->
-                    </select>
-                </label>
-                <button id="saveCombo" class="primary">保存套餐</button>
-                <button id="resetCombo" class="secondary">重置</button>
-            </div>
+                <div class="store-management-layout">
+                    <div class="store-form-grid">
+                        <label>店铺名称
+                            <input type="text" id="storeName" placeholder="请输入店铺名称" />
+                        </label>
+                        <label>店铺简介
+                            <input type="text" id="storeDescription" placeholder="请输入店铺简介" />
+                        </label>
+                        <label>营业状态
+                            <select id="storeBusinessStatus">
+                                <option value="营业中">营业中</option>
+                                <option value="休息中">休息中</option>
+                                <option value="暂停接单">暂停接单</option>
+                            </select>
+                        </label>
+                        <label>营业时间
+                            <input type="text" id="storeBusinessHours" placeholder="例如 09:00-22:00" />
+                        </label>
+                        <label>评分
+                            <input type="number" id="storeRating" min="0" max="5" step="0.1" placeholder="0-5" />
+                        </label>
+                        <label>配送费
+                            <input type="number" id="storeDeliveryFee" min="0" step="0.1" placeholder="请输入配送费" />
+                        </label>
+                        <label>起送价
+                            <input type="number" id="storeMinOrderAmount" min="0" step="0.1" placeholder="请输入起送价" />
+                        </label>
+                        <label>月售
+                            <input type="text" id="storeMonthlySales" readonly />
+                        </label>
+                        <label>店铺状态
+                            <select id="storeStatus">
+                                <option value="active">上架展示</option>
+                                <option value="inactive">下架隐藏</option>
+                            </select>
+                        </label>
+                        <label>头像图片
+                            <input type="file" id="storeAvatarFile" accept="image/*" />
+                        </label>
+                        <label>封面图片
+                            <input type="file" id="storeCoverFile" accept="image/*" />
+                        </label>
+                        <label class="store-form-span-2">店铺公告
+                            <textarea id="storeAnnouncement" rows="4" placeholder="请输入店铺公告"></textarea>
+                        </label>
+                    </div>
+                    <div class="store-image-preview-grid">
+                        <div class="image-preview-panel">
+                            <h3>头像预览</h3>
+                            <div id="storeAvatarPreview" class="image-preview"></div>
+                        </div>
+                        <div class="image-preview-panel">
+                            <h3>封面预览</h3>
+                            <div id="storeCoverPreview" class="image-preview"></div>
+                        </div>
+                    </div>
+                </div>
 
-            <div id="comboList" class="combo-grid"></div>
-        </section>
+                <div class="form-actions-row">
+                    <button id="saveStoreBtn" class="primary">保存店铺信息</button>
+                    <button id="resetStoreBtn" class="secondary">恢复当前内容</button>
+                </div>
+            </section>
 
-        <section class="order-section">
-            <h2>订单列表</h2>
-            <div id="merchantOrderList"></div>
-        </section>
-    </main>
+            <section class="page" id="page-categories">
+                <div class="section-header-row">
+                    <div>
+                        <h2>商品分类管理</h2>
+                        <p class="analysis-summary">维护当前店铺商品分类。</p>
+                    </div>
+                </div>
+                <div class="category-form">
+                    <label>分类名称
+                        <input type="text" id="categoryName" placeholder="请输入分类名称" />
+                    </label>
+                    <button id="saveCategory" class="primary">保存分类</button>
+                    <button id="resetCategory" class="secondary">重置</button>
+                </div>
+                <div id="categoryList" class="category-list"></div>
+            </section>
+
+            <section class="page" id="page-products">
+                <div class="section-header-row">
+                    <div>
+                        <h2>商品管理</h2>
+                        <p class="analysis-summary">新增、编辑和删除店铺菜品。</p>
+                    </div>
+                </div>
+                <div class="product-form">
+                    <label>名称
+                        <input type="text" id="itemName" placeholder="请输入商品名称" />
+                    </label>
+                    <label>描述
+                        <input type="text" id="itemDescription" placeholder="请输入商品描述" />
+                    </label>
+                    <label>价格
+                        <input type="number" id="itemPrice" placeholder="请输入价格" step="0.01" />
+                    </label>
+                    <label>分类
+                        <select id="itemCategory">
+                            <option value="">请选择分类</option>
+                        </select>
+                    </label>
+                    <label>商品图片
+                        <input type="file" id="itemImage" accept="image/*" />
+                    </label>
+                    <div id="imagePreview" class="image-preview"></div>
+                    <button id="saveItem" class="primary">保存商品</button>
+                    <button id="resetItem" class="secondary">重置</button>
+                </div>
+                <div id="productList" class="menu-grid"></div>
+            </section>
+
+            <section class="page" id="page-combos">
+                <div class="section-header-row">
+                    <div>
+                        <h2>套餐管理</h2>
+                        <p class="analysis-summary">配置套餐商品组合和折扣信息。</p>
+                    </div>
+                </div>
+                <div class="combo-form">
+                    <label>套餐名称
+                        <input type="text" id="comboName" placeholder="请输入套餐名称" />
+                    </label>
+                    <label>描述
+                        <input type="text" id="comboDescription" placeholder="请输入套餐描述" />
+                    </label>
+                    <label>价格
+                        <input type="number" id="comboPrice" placeholder="请输入价格" step="0.01" />
+                    </label>
+                    <label>折扣
+                        <input type="number" id="comboDiscount" placeholder="折扣比例" step="0.1" value="1.0" min="0.1" max="1.0" />
+                    </label>
+                    <label>选择商品
+                        <select id="comboItems" multiple size="5"></select>
+                    </label>
+                    <button id="saveCombo" class="primary">保存套餐</button>
+                    <button id="resetCombo" class="secondary">重置</button>
+                </div>
+                <div id="comboList" class="combo-grid"></div>
+            </section>
+
+            <section class="page" id="page-orders">
+                <div class="section-header-row">
+                    <div>
+                        <h2>订单列表</h2>
+                        <p class="analysis-summary">查看并处理当前店铺订单。</p>
+                    </div>
+                </div>
+                <div id="merchantOrderList"></div>
+            </section>
+
+            <section class="page" id="page-services">
+                <div class="section-header-row">
+                    <div>
+                        <h2>智能服务</h2>
+                        <p class="analysis-summary">进入面向商家的智能经营分析模块。</p>
+                    </div>
+                </div>
+                <div class="service-grid">
+                    <a class="service-card-link" href="{{ merchant_analysis_url }}">
+                        <article class="service-card">
+                            <span class="service-tag">经营洞察</span>
+                            <h3>数据智能分析</h3>
+                            <p>自动汇总订单、收入、热销商品，给出经营洞察和优化建议。</p>
+                            <span class="service-entry">查看分析</span>
+                        </article>
+                    </a>
+                </div>
+            </section>
+        </main>
+    </div>
 
     <script src="/static/merchant.js"></script>
 </body>

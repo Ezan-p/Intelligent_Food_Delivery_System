@@ -3,108 +3,78 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>用户登录 - 智能外卖管理平台</title>
+    <title>{{ title }} - 智能外卖管理平台</title>
     <link rel="stylesheet" href="/static/style.css" />
     <style>
+        .login-shell {
+            min-height: calc(100vh - 160px);
+            display: grid;
+            place-items: center;
+            padding: 40px 16px 60px;
+        }
         .login-container {
-            max-width: 400px;
-            margin: 60px auto;
-            padding: 40px;
+            width: min(460px, 100%);
+            padding: 36px;
             background: #fff;
-            border-radius: 12px;
-            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.1);
+            border-radius: 18px;
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
         }
-        .login-container h2 {
-            text-align: center;
-            margin-bottom: 30px;
-            color: #333;
-        }
-        .form-group {
+        .portal-badge {
+            display: inline-flex;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: #eef4ff;
+            color: #285ea8;
+            font-size: 13px;
+            font-weight: 600;
             margin-bottom: 16px;
         }
+        .login-container h2 {
+            margin-bottom: 10px;
+            color: #0f172a;
+        }
+        .login-desc {
+            margin-bottom: 24px;
+            color: #64748b;
+            line-height: 1.6;
+        }
+        .form-group { margin-bottom: 16px; }
         .form-group label {
             display: block;
             margin-bottom: 8px;
-            font-weight: 500;
-            color: #333;
+            font-weight: 600;
+            color: #334155;
         }
         .form-group input {
             width: 100%;
-            padding: 12px;
+            padding: 12px 14px;
             border: 1px solid #d1d5db;
-            border-radius: 8px;
+            border-radius: 10px;
             font-size: 14px;
-            transition: border-color 0.2s;
         }
-        .form-group input:focus {
-            outline: none;
-            border-color: #2d7ff9;
-            box-shadow: 0 0 0 3px rgba(45, 127, 249, 0.1);
-        }
-        .error-message {
-            color: #dc2626;
+        .error-message, .success-message {
             font-size: 14px;
             margin-bottom: 16px;
-            padding: 12px;
-            background: #fee2e2;
-            border-radius: 8px;
+            padding: 12px 14px;
+            border-radius: 10px;
             display: none;
         }
-        .success-message {
-            color: #059669;
-            font-size: 14px;
-            margin-bottom: 16px;
-            padding: 12px;
-            background: #d1fae5;
-            border-radius: 8px;
-            display: none;
-        }
-        .button-group {
-            display: flex;
-            gap: 12px;
-            margin-top: 24px;
-        }
+        .error-message { color: #b91c1c; background: #fee2e2; }
+        .success-message { color: #047857; background: #d1fae5; }
+        .button-group { display: flex; gap: 12px; margin-top: 24px; }
         .button-group button {
             flex: 1;
             padding: 12px;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
         }
-        .btn-primary {
-            background: #2d7ff9;
-            color: #fff;
-        }
-        .btn-primary:hover {
-            background: #1e5fbf;
-        }
-        .btn-secondary {
-            background: #f5f7ff;
-            color: #334155;
-            border: 1px solid #e2e8f0;
-        }
-        .btn-secondary:hover {
-            background: #f0f5ff;
-        }
-        .toggle-form {
-            text-align: center;
-            margin-top: 16px;
-            font-size: 14px;
-            color: #666;
-        }
-        .toggle-form button {
-            background: none;
-            border: none;
-            color: #2d7ff9;
-            cursor: pointer;
-            text-decoration: underline;
-        }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .btn-secondary { background: #eff6ff; color: #1e3a8a; }
         .form-tabs {
-            display: flex;
-            gap: 0;
+            display: {% if allow_register %}flex{% else %}none{% endif %};
             margin-bottom: 24px;
             border-bottom: 2px solid #e5e7eb;
         }
@@ -114,37 +84,46 @@
             background: none;
             border: none;
             cursor: pointer;
-            color: #999;
-            font-weight: 500;
+            color: #94a3b8;
+            font-weight: 600;
             border-bottom: 3px solid transparent;
             margin-bottom: -2px;
         }
-        .form-tab.active {
-            color: #2d7ff9;
-            border-bottom-color: #2d7ff9;
+        .form-tab.active { color: #2563eb; border-bottom-color: #2563eb; }
+        .login-hint {
+            margin-top: 18px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: #f8fafc;
+            color: #475569;
+            font-size: 13px;
+            line-height: 1.6;
         }
     </style>
 </head>
-<body>
+<body data-role="{{ role }}" data-target-path="{{ target_path }}" data-allow-register="{{ 'true' if allow_register else 'false' }}">
     <header>
         <h1>智能外卖管理平台</h1>
-        <p>用户登录与注册</p>
+        <p>{{ subtitle }}</p>
         <nav class="page-nav">
-            <a class="nav-link" href="/">客户端</a>
-            <a class="nav-link" href="/merchant">商家端</a>
+            <a class="nav-link {% if role == 'customer' %}active{% endif %}" href="{{ customer_url }}">客户端</a>
+            <a class="nav-link {% if role == 'merchant' %}active{% endif %}" href="{{ merchant_url }}">商家端</a>
+            <a class="nav-link {% if role == 'admin' %}active{% endif %}" href="{{ admin_url }}">后台管理端</a>
+            <a class="nav-link" href="{{ chat_url }}">AI客服</a>
         </nav>
     </header>
 
-    <main>
+    <main class="login-shell">
         <div class="login-container">
+            <span class="portal-badge">{{ portal_name }}</span>
             <div class="form-tabs">
-                <button class="form-tab active" onclick="switchTab('login')">登录</button>
-                <button class="form-tab" onclick="switchTab('register')">注册</button>
+                <button class="form-tab active" type="button" onclick="switchTab('login')">登录</button>
+                <button class="form-tab" type="button" onclick="switchTab('register')">注册</button>
             </div>
 
-            <!-- 登录表单 -->
             <form id="loginForm" style="display: block;">
-                <h2>登录账户</h2>
+                <h2>{{ submit_label }}</h2>
+                <p class="login-desc">输入对应端口的账户信息后进入{{ portal_name }}。</p>
                 <div class="error-message" id="loginError"></div>
                 <div class="success-message" id="loginSuccess"></div>
                 <div class="form-group">
@@ -156,19 +135,19 @@
                     <input type="password" id="loginPassword" placeholder="输入密码" required />
                 </div>
                 <div class="form-group">
-                    <label style="display: flex; align-items: center;">
-                        <input type="checkbox" id="rememberMe" style="margin-right: 8px;" />
+                    <label style="display: flex; align-items: center; gap: 8px; font-weight: 500;">
+                        <input type="checkbox" id="rememberMe" style="width: auto;" />
                         记住我
                     </label>
                 </div>
                 <div class="button-group">
-                    <button type="submit" class="btn-primary">登录</button>
+                    <button type="submit" class="btn-primary">{{ submit_label }}</button>
                 </div>
             </form>
 
-            <!-- 注册表单 -->
             <form id="registerForm" style="display: none;">
-                <h2>创建账户</h2>
+                <h2>{{ register_label }}</h2>
+                <p class="login-desc">注册后将创建{{ portal_name }}专属账户。</p>
                 <div class="error-message" id="registerError"></div>
                 <div class="success-message" id="registerSuccess"></div>
                 <div class="form-group">
@@ -184,14 +163,30 @@
                     <input type="tel" id="registerPhone" placeholder="输入电话号码" />
                 </div>
                 <div class="button-group">
-                    <button type="submit" class="btn-primary">注册</button>
+                    <button type="submit" class="btn-primary">{{ register_label }}</button>
+                    <button type="button" class="btn-secondary" onclick="switchTab('login')">返回登录</button>
                 </div>
             </form>
+
+            <div class="login-hint">
+                {% if role == 'admin' %}
+                默认管理员账号：`admin` / `admin123456`
+                {% elif role == 'merchant' %}
+                默认商家账号：`merchant` / `merchant123`
+                {% else %}
+                客户端支持新用户直接注册，也可使用已有客户端账户登录。
+                {% endif %}
+            </div>
         </div>
     </main>
 
     <script>
+        const pageRole = document.body.dataset.role;
+        const targetPath = document.body.dataset.targetPath;
+        const allowRegister = document.body.dataset.allowRegister === 'true';
+
         function switchTab(tab) {
+            if (!allowRegister) return;
             const loginForm = document.getElementById('loginForm');
             const registerForm = document.getElementById('registerForm');
             const tabs = document.querySelectorAll('.form-tab');
@@ -209,11 +204,10 @@
             }
         }
 
-        // 页面加载时填充记住的登录信息
         window.addEventListener('load', () => {
-            const savedUsername = localStorage.getItem('rememberedUsername');
-            const savedPassword = localStorage.getItem('rememberedPassword');
-            const rememberMe = localStorage.getItem('rememberMe') === 'true';
+            const savedUsername = localStorage.getItem(`rememberedUsername:${pageRole}`);
+            const savedPassword = localStorage.getItem(`rememberedPassword:${pageRole}`);
+            const rememberMe = localStorage.getItem(`rememberMe:${pageRole}`) === 'true';
 
             if (savedUsername) {
                 document.getElementById('loginUsername').value = savedUsername;
@@ -224,7 +218,6 @@
             }
         });
 
-        // 登录处理
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const username = document.getElementById('loginUsername').value.trim();
@@ -242,80 +235,59 @@
                 return;
             }
 
-            try {
-                const response = await fetch('/api/users/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
-                });
+            const response = await fetch('/api/users/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, role: pageRole })
+            });
+            const data = await response.json();
 
-                const data = await response.json();
+            if (!response.ok) {
+                errorSpan.textContent = data.error || '登录失败';
+                errorSpan.style.display = 'block';
+                return;
+            }
 
-                if (!response.ok) {
-                    errorSpan.textContent = data.error || '登录失败';
+            localStorage.setItem(`${pageRole}:sessionId`, data.session_id);
+            localStorage.setItem(`${pageRole}:user`, JSON.stringify(data.user));
+            if (rememberMe) {
+                localStorage.setItem(`rememberedUsername:${pageRole}`, username);
+                localStorage.setItem(`rememberedPassword:${pageRole}`, password);
+                localStorage.setItem(`rememberMe:${pageRole}`, 'true');
+            } else {
+                localStorage.removeItem(`rememberedUsername:${pageRole}`);
+                localStorage.removeItem(`rememberedPassword:${pageRole}`);
+                localStorage.removeItem(`rememberMe:${pageRole}`);
+            }
+
+            successSpan.textContent = '登录成功，正在跳转...';
+            successSpan.style.display = 'block';
+            setTimeout(() => { window.location.href = targetPath; }, 500);
+        });
+
+        if (allowRegister) {
+            document.getElementById('registerForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const username = document.getElementById('registerUsername').value.trim();
+                const password = document.getElementById('registerPassword').value.trim();
+                const phone = document.getElementById('registerPhone').value.trim();
+                const errorSpan = document.getElementById('registerError');
+                const successSpan = document.getElementById('registerSuccess');
+
+                errorSpan.style.display = 'none';
+                successSpan.style.display = 'none';
+
+                if (!username || !password) {
+                    errorSpan.textContent = '请填写用户名和密码';
                     errorSpan.style.display = 'block';
                     return;
                 }
 
-                // 保存 session
-                localStorage.setItem('sessionId', data.session_id);
-                localStorage.setItem('user', JSON.stringify(data.user));
-
-                // 如果勾选了记住我，保存用户名和密码
-                if (rememberMe) {
-                    localStorage.setItem('rememberedUsername', username);
-                    localStorage.setItem('rememberedPassword', password);
-                    localStorage.setItem('rememberMe', 'true');
-                } else {
-                    // 如果没有勾选，清除保存的信息
-                    localStorage.removeItem('rememberedUsername');
-                    localStorage.removeItem('rememberedPassword');
-                    localStorage.removeItem('rememberMe');
-                }
-
-                successSpan.textContent = '登录成功，正在跳转...';
-                successSpan.style.display = 'block';
-
-                setTimeout(() => {
-                    window.location.href = '/';
-                }, 1500);
-            } catch (error) {
-                errorSpan.textContent = '网络错误，请重试';
-                errorSpan.style.display = 'block';
-            }
-        });
-
-        // 注册处理
-        document.getElementById('registerForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const username = document.getElementById('registerUsername').value.trim();
-            const password = document.getElementById('registerPassword').value.trim();
-            const phone = document.getElementById('registerPhone').value.trim();
-            const errorSpan = document.getElementById('registerError');
-            const successSpan = document.getElementById('registerSuccess');
-
-            errorSpan.style.display = 'none';
-            successSpan.style.display = 'none';
-
-            if (!username || !password) {
-                errorSpan.textContent = '用户名和密码必填';
-                errorSpan.style.display = 'block';
-                return;
-            }
-
-            if (password.length < 6) {
-                errorSpan.textContent = '密码至少6个字符';
-                errorSpan.style.display = 'block';
-                return;
-            }
-
-            try {
                 const response = await fetch('/api/users/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password, phone })
+                    body: JSON.stringify({ username, password, phone, role: pageRole })
                 });
-
                 const data = await response.json();
 
                 if (!response.ok) {
@@ -324,24 +296,13 @@
                     return;
                 }
 
-                // 保存 session
-                localStorage.setItem('sessionId', data.session_id);
-                localStorage.setItem('user', JSON.stringify(data.user));
-
-                // 保存用户名以便下次登录时自动填充
-                localStorage.setItem('rememberedUsername', username);
-
+                localStorage.setItem(`${pageRole}:sessionId`, data.session_id);
+                localStorage.setItem(`${pageRole}:user`, JSON.stringify(data.user));
                 successSpan.textContent = '注册成功，正在跳转...';
                 successSpan.style.display = 'block';
-
-                setTimeout(() => {
-                    window.location.href = '/';
-                }, 1500);
-            } catch (error) {
-                errorSpan.textContent = '网络错误，请重试';
-                errorSpan.style.display = 'block';
-            }
-        });
+                setTimeout(() => { window.location.href = targetPath; }, 500);
+            });
+        }
     </script>
 </body>
 </html>

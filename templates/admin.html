@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>后台管理端 - 智能外卖管理平台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <header>
+        <h1>后台管理端</h1>
+        <p>管理员统一查看平台用户、商家、店铺、订单与智能服务运行情况。</p>
+        <nav class="page-nav">
+            <a class="nav-link" href="{{ customer_url }}">客户端</a>
+            <a class="nav-link" href="{{ merchant_url }}">商家端</a>
+            <a class="nav-link active" href="{{ admin_url }}">后台管理端</a>
+            <a class="nav-link" href="{{ chat_url }}">AI客服</a>
+            <div id="adminNav" style="margin-left: auto; display: flex; align-items: center; gap: 12px;">
+                <a id="adminLoginLink" class="nav-link" href="/login">管理员登录</a>
+                <span id="adminUserInfo" style="display: none; color: #e2e8f0; padding: 8px 0;">
+                    管理员：<span id="adminUsername"></span>
+                    <button id="adminLogoutBtn" class="nav-link" style="background: none; border: none; padding: 0; margin-left: 12px;">退出</button>
+                </span>
+            </div>
+        </nav>
+    </header>
+
+    <div class="container-with-sidebar">
+        <aside class="sidebar">
+            <nav class="sidebar-menu">
+                <button class="menu-item active" data-page="overview">
+                    <span class="icon">📈</span>
+                    <span>平台总览</span>
+                </button>
+                <button class="menu-item" data-page="services">
+                    <span class="icon">🧠</span>
+                    <span>智能服务监控</span>
+                </button>
+                <button class="menu-item" data-page="stores">
+                    <span class="icon">🏬</span>
+                    <span>店铺经营管理</span>
+                </button>
+                <button class="menu-item" data-page="merchants">
+                    <span class="icon">🧑‍🍳</span>
+                    <span>商家管理</span>
+                </button>
+                <button class="menu-item" data-page="customers">
+                    <span class="icon">👥</span>
+                    <span>用户管理</span>
+                </button>
+                <button class="menu-item" data-page="orders">
+                    <span class="icon">🧾</span>
+                    <span>最近订单</span>
+                </button>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <section class="page active" id="page-overview">
+                <div class="section-header-row">
+                    <div>
+                        <h2>平台总览</h2>
+                        <p class="analysis-summary">查看平台账户、店铺、订单、异常用户和经营指标。</p>
+                    </div>
+                </div>
+                <div id="adminStats" class="stats-grid"></div>
+            </section>
+
+            <section class="page" id="page-services">
+                <div class="section-header-row">
+                    <div>
+                        <h2>智能服务监控</h2>
+                        <p class="analysis-summary">监控 AI 客服、智能点餐助手、数据分析的运行情况与调用表现。</p>
+                    </div>
+                </div>
+                <div id="serviceMonitorStats" class="stats-grid"></div>
+                <div id="serviceMonitorDetails" class="analysis-layout"></div>
+                <div class="service-grid" style="margin-top: 18px;">
+                    <a class="service-card-link" href="{{ customer_chat_url }}">
+                        <article class="service-card">
+                            <span class="service-tag">用户端</span>
+                            <h3>AI客服</h3>
+                            <p>面向用户端，负责售前咨询、订单答疑、退款配送问题解答。</p>
+                            <span class="service-entry">打开用户端入口</span>
+                        </article>
+                    </a>
+                    <a class="service-card-link" href="{{ customer_order_assistant_url }}">
+                        <article class="service-card">
+                            <span class="service-tag">用户端</span>
+                            <h3>智能点餐助手</h3>
+                            <p>基于菜品、套餐、预算和偏好生成智能点餐建议。</p>
+                            <span class="service-entry">打开用户端入口</span>
+                        </article>
+                    </a>
+                    <a class="service-card-link" href="{{ merchant_analysis_url }}">
+                        <article class="service-card">
+                            <span class="service-tag">商家端</span>
+                            <h3>数据智能分析</h3>
+                            <p>结合订单和收入表现输出经营洞察，辅助商家优化运营。</p>
+                            <span class="service-entry">打开商家端入口</span>
+                        </article>
+                    </a>
+                </div>
+            </section>
+
+            <section class="page" id="page-stores">
+                <div class="section-header-row">
+                    <div>
+                        <h2>店铺经营管理</h2>
+                        <p class="analysis-summary">统一管理店铺上架状态、营业状态、经营数据和公告信息。</p>
+                    </div>
+                </div>
+                <div id="adminStoresList" class="service-grid"></div>
+            </section>
+
+            <section class="page" id="page-merchants">
+                <div class="section-header-row">
+                    <div>
+                        <h2>商家管理</h2>
+                        <p class="analysis-summary">查看入驻商家的基本信息、账户状态和所属店铺。</p>
+                    </div>
+                </div>
+                <div id="merchantUsersList"></div>
+            </section>
+
+            <section class="page" id="page-customers">
+                <div class="section-header-row">
+                    <div>
+                        <h2>用户管理</h2>
+                        <p class="analysis-summary">查看注册用户信息，对异常用户做标记并维护账户状态。</p>
+                    </div>
+                </div>
+                <div id="customerUsersList"></div>
+            </section>
+
+            <section class="page" id="page-orders">
+                <div class="section-header-row">
+                    <div>
+                        <h2>最近订单</h2>
+                        <p class="analysis-summary">查看最近订单状态、金额和所属店铺。</p>
+                    </div>
+                </div>
+                <div id="recentOrdersList"></div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/admin.js"></script>
+</body>
+</html>

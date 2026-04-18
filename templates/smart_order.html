@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>智能点餐助手 - 智能外卖管理平台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <header>
+        <h1>智能点餐助手</h1>
+        <p>根据人数、预算和口味偏好，快速生成个性化点餐建议。</p>
+        <nav class="page-nav">
+            <a class="nav-link" href="{{ customer_url }}">客户端</a>
+            <a class="nav-link" href="{{ merchant_url }}">商家端</a>
+            <a class="nav-link" href="{{ admin_url }}">后台管理端</a>
+            <a class="nav-link" href="{{ customer_chat_url }}">AI客服</a>
+            <a class="nav-link active" href="{{ customer_order_assistant_url }}">智能点餐助手</a>
+        </nav>
+    </header>
+
+    <main>
+        <section>
+            <h2>点餐需求</h2>
+            <div class="analysis-layout">
+                <div class="analysis-panel">
+                    <div id="assistantStoreMeta" class="analysis-summary">请先在用户端选择店铺。</div>
+                    <div class="form-group">
+                        <label>人数</label>
+                        <input type="number" id="peopleCount" min="1" value="1" />
+                    </div>
+                    <div class="form-group">
+                        <label>预算（可选）</label>
+                        <input type="number" id="budget" min="0" step="0.01" placeholder="例如 60" />
+                    </div>
+                    <div class="form-group">
+                        <label>口味偏好 / 忌口</label>
+                        <input type="text" id="preferences" placeholder="例如：微辣、不要香菜、想吃面食" />
+                    </div>
+                    <button id="generateRecommendation" class="primary">生成推荐</button>
+                </div>
+                <div class="analysis-panel">
+                    <h3>推荐结果</h3>
+                    <div id="recommendationMeta" class="analysis-summary">填写需求后点击生成推荐。</div>
+                    <div id="recommendationResult" class="analysis-text-block">系统将结合菜单、套餐和偏好输出建议。</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/smart_order.js"></script>
+</body>
+</html>

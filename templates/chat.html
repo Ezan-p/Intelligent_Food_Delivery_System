@@ -184,9 +184,11 @@
         <h1>AI客服助手</h1>
         <p>智能外卖平台AI助手，随时为您解答问题</p>
         <nav class="page-nav">
-            <a class="nav-link" href="/">客户端</a>
-            <a class="nav-link" href="/merchant">商家端</a>
+            <a class="nav-link" href="{{ customer_url }}">客户端</a>
+            <a class="nav-link" href="{{ merchant_url }}">商家端</a>
+            <a class="nav-link" href="{{ admin_url }}">后台管理端</a>
             <a class="nav-link active" href="/chat">AI客服</a>
+            <a class="nav-link" href="{{ customer_order_assistant_url }}">智能点餐助手</a>
         </nav>
     </header>
 
@@ -240,8 +242,9 @@
         const imagePreview = document.getElementById('imagePreview');
         const typingIndicator = document.getElementById('typingIndicator');
 
+        const STORAGE_PREFIX = 'customer';
         let currentImageData = null;
-        let conversationId = localStorage.getItem('aiConversationId') || '';
+        let conversationId = localStorage.getItem('customer:aiConversationId') || '';
 
         // 自动调整文本框高度
         messageInput.addEventListener('input', function() {
@@ -286,7 +289,7 @@
             sendBtn.disabled = true;
 
             try {
-                const sessionId = localStorage.getItem('sessionId');
+                const sessionId = localStorage.getItem(`${STORAGE_PREFIX}:sessionId`);
                 const headers = { 'Content-Type': 'application/json' };
                 if (sessionId) {
                     headers['X-Session-ID'] = sessionId;
@@ -313,7 +316,7 @@
                 addMessage(data.response, 'bot');
                 if (data.conversation_id) {
                     conversationId = data.conversation_id;
-                    localStorage.setItem('aiConversationId', conversationId);
+                    localStorage.setItem('customer:aiConversationId', conversationId);
                 }
                 if (data.warning) {
                     addMessage(`提示：${data.warning}`, 'bot');

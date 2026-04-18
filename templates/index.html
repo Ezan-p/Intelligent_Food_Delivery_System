@@ -11,11 +11,12 @@
         <h1>外卖客户端</h1>
         <p>欢迎来到智能外卖平台，快速点餐，查看订单状态。</p>
         <nav class="page-nav">
-            <a class="nav-link active" href="/">客户端</a>
-            <a class="nav-link" href="/merchant">商家端</a>
-            <a class="nav-link" href="/chat">AI客服</a>
+            <a class="nav-link active" href="{{ customer_url }}">客户端</a>
+            <a class="nav-link" href="{{ merchant_url }}">商家端</a>
+            <a class="nav-link" href="{{ admin_url }}">后台管理端</a>
+            <a class="nav-link" href="{{ chat_url }}">AI客服</a>
             <div id="userNav" style="margin-left: auto;">
-                <a id="loginLink" class="nav-link" href="/login">登录</a>
+                <a id="loginLink" class="nav-link" href="/login">客户端登录</a>
                 <span id="userInfo" style="display: none; color: #e2e8f0; padding: 8px 16px;">
                     欢迎, <span id="username"></span>
                     <button id="logoutBtn" class="nav-link" style="background: none; border: none; padding: 0; margin-left: 12px;">退出</button>
@@ -28,13 +29,13 @@
         <!-- 侧边菜单 -->
         <aside class="sidebar">
             <nav class="sidebar-menu">
-                <button class="menu-item active" data-page="menu">
-                    <span class="icon">🍽️</span>
-                    <span>菜单列表</span>
+                <button class="menu-item active" data-page="stores">
+                    <span class="icon">🏪</span>
+                    <span>店铺列表</span>
                 </button>
-                <button class="menu-item" data-page="combos">
-                    <span class="icon">🛍️</span>
-                    <span>推荐套餐</span>
+                <button class="menu-item" data-page="services">
+                    <span class="icon">🤖</span>
+                    <span>智能服务</span>
                 </button>
                 <button class="menu-item" data-page="cart">
                     <span class="icon">🛒</span>
@@ -57,25 +58,71 @@
 
         <!-- 主内容区 -->
         <main class="main-content">
-            <!-- 菜单页面 -->
-            <section class="page active" id="page-menu">
-                <h2>菜单列表</h2>
-                <div class="category-filter">
-                    <button class="filter-btn active" data-category="all">全部</button>
+            <section class="page active" id="page-stores">
+                <h2>商家店铺</h2>
+                <p class="analysis-summary">先选择一家店铺，再查看该店铺下的菜品和套餐。</p>
+                <div class="search-toolbar">
+                    <input type="search" id="storeSearchInput" placeholder="搜索店铺名称、简介、公告" />
                 </div>
-                <div id="menuList" class="menu-grid"></div>
+                <div id="storeList" class="service-grid"></div>
             </section>
 
-            <!-- 推荐套餐页面 -->
-            <section class="page" id="page-combos">
-                <h2>推荐套餐</h2>
-                <div id="comboList" class="combo-grid"></div>
+            <section class="page" id="page-store-detail">
+                <div class="section-header-row">
+                    <div>
+                        <h2>店铺详情</h2>
+                        <div id="selectedStoreBanner" class="analysis-summary">尚未选择店铺。</div>
+                    </div>
+                    <button id="backToStoresBtn" class="secondary">返回店铺列表</button>
+                </div>
+                <div class="store-detail-tabs">
+                    <button class="filter-btn active store-detail-tab" data-store-tab="menu">菜品</button>
+                    <button class="filter-btn store-detail-tab" data-store-tab="combos">套餐</button>
+                </div>
+
+                <div class="store-detail-panel active" id="store-tab-menu">
+                    <div class="search-toolbar">
+                        <input type="search" id="menuSearchInput" placeholder="搜索当前店铺内的菜品名称、描述" />
+                    </div>
+                    <div class="category-filter">
+                        <button class="filter-btn active" data-category="all">全部</button>
+                    </div>
+                    <div id="menuList" class="menu-grid"></div>
+                </div>
+
+                <div class="store-detail-panel" id="store-tab-combos">
+                    <div id="selectedComboStoreBanner" class="analysis-summary">尚未选择店铺。</div>
+                    <div id="comboList" class="combo-grid"></div>
+                </div>
+            </section>
+
+            <section class="page" id="page-services">
+                <h2>智能服务</h2>
+                <div class="service-grid">
+                    <a class="service-card-link" href="{{ customer_chat_url }}">
+                        <article class="service-card">
+                            <span class="service-tag">AI客服</span>
+                            <h3>AI客服助手</h3>
+                            <p>咨询订单、退款、配送、地址、活动等平台问题。</p>
+                            <span class="service-entry">进入服务</span>
+                        </article>
+                    </a>
+                    <a class="service-card-link" href="{{ customer_order_assistant_url }}">
+                        <article class="service-card">
+                            <span class="service-tag">智能推荐</span>
+                            <h3>智能点餐助手</h3>
+                            <p>根据预算、人数和口味偏好，快速生成点餐建议。</p>
+                            <span class="service-entry">开始推荐</span>
+                        </article>
+                    </a>
+                </div>
             </section>
 
             <!-- 购物车页面 -->
             <section class="page" id="page-cart">
                 <h2>购物车</h2>
                 <div class="cart-panel">
+                    <div id="cartStoreBanner" class="analysis-summary">请选择店铺后再加购。</div>
                     <div id="cartItems"></div>
                     <div class="cart-total">总价: ¥<span id="cartTotal">0.00</span></div>
                 </div>
@@ -143,7 +190,7 @@
         </main>
     </div>
 
-    <a class="ai-chat-entry" href="/chat" aria-label="打开AI客服">
+    <a class="ai-chat-entry" href="{{ customer_chat_url }}" aria-label="打开AI客服">
         💬 AI 客服
     </a>
 

@@ -3,15 +3,23 @@ import sys
 import json
 import re
 from urllib.parse import urlparse
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, redirect, make_response
 from datetime import datetime
 import requests
 
 app = Flask(__name__)
 
+@app.after_request
+def add_no_cache_headers(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 # 数据文件路径
 DATA_DIR = 'data'
 DATA_FILE = os.path.join(DATA_DIR, 'app_data.json')
+DATA_FILE_MTIME = 0
 
 # 创建 data 目录（如果不存在）
 if not os.path.exists(DATA_DIR):
@@ -51,6 +59,17 @@ REMOTE_AI_SYSTEM_PROMPT = os.environ.get(
 ACTIVE_REMOTE_AI_API_URL = REMOTE_AI_API_URL
 USE_MODEL_FIELD = True
 ai_conversation_store = {}
+SERVICE_MONITOR = {
+    "ai_chat_requests": 0,
+    "ai_chat_failures": 0,
+    "smart_order_requests": 0,
+    "smart_order_failures": 0,
+    "data_analysis_requests": 0,
+    "data_analysis_failures": 0,
+    "last_ai_chat_at": "",
+    "last_smart_order_at": "",
+    "last_data_analysis_at": ""
+}
 
 def looks_like_truncated_answer(text):
     if not isinstance(text, str):
@@ -104,9 +123,10 @@ def trim_conversation_history(history):
     return history[-AI_CONTEXT_MAX_MESSAGES:]
 
 def get_user_by_session(session_id):
-    if not session_id or session_id not in user_sessions:
+    session_payload = get_session_payload(session_id)
+    if not session_payload:
         return None
-    user_id = user_sessions.get(session_id)
+    user_id = session_payload.get("user_id")
     return next((u for u in users if u.get('id') == user_id), None)
 
 def build_business_context_text(session_id=None):
@@ -182,21 +202,22 @@ def build_remote_ai_candidate_urls(url):
 
 # 默认数据结构
 DEFAULT_DATA = {
+    "stores": [],
     "categories": [
-        {"id": 1, "name": "主菜"},
-        {"id": 2, "name": "面食"},
-        {"id": 3, "name": "饮品"},
-        {"id": 4, "name": "套餐"}
+        {"id": 1, "name": "主菜", "store_id": 1},
+        {"id": 2, "name": "面食", "store_id": 1},
+        {"id": 3, "name": "饮品", "store_id": 1},
+        {"id": 4, "name": "套餐", "store_id": 1}
     ],
     "menu": [
-        {"id": 1, "name": "麻辣香锅", "description": "香辣可口，大份足量。", "price": 36.0, "category_id": 1, "image": None},
-        {"id": 2, "name": "宫保鸡丁", "description": "经典川菜，微辣下饭。", "price": 28.0, "category_id": 1, "image": None},
-        {"id": 3, "name": "番茄牛腩面", "description": "汤浓味足，面条劲道。", "price": 32.0, "category_id": 2, "image": None},
-        {"id": 4, "name": "红烧茄子盖饭", "description": "家常口味，茄子软糯。", "price": 22.0, "category_id": 1, "image": None},
-        {"id": 5, "name": "小龙虾套餐", "description": "麻辣龙虾，赠送饮料。", "price": 88.0, "category_id": 4, "image": None}
+        {"id": 1, "name": "麻辣香锅", "description": "香辣可口，大份足量。", "price": 36.0, "category_id": 1, "store_id": 1, "image": None},
+        {"id": 2, "name": "宫保鸡丁", "description": "经典川菜，微辣下饭。", "price": 28.0, "category_id": 1, "store_id": 1, "image": None},
+        {"id": 3, "name": "番茄牛腩面", "description": "汤浓味足，面条劲道。", "price": 32.0, "category_id": 2, "store_id": 1, "image": None},
+        {"id": 4, "name": "红烧茄子盖饭", "description": "家常口味，茄子软糯。", "price": 22.0, "category_id": 1, "store_id": 1, "image": None},
+        {"id": 5, "name": "小龙虾套餐", "description": "麻辣龙虾，赠送饮料。", "price": 88.0, "category_id": 4, "store_id": 1, "image": None}
     ],
     "combos": [
-        {"id": 1, "name": "家庭套餐", "description": "适合家庭聚餐", "price": 128.0, "items": [1, 2, 3], "discount": 0.9}
+        {"id": 1, "name": "家庭套餐", "description": "适合家庭聚餐", "price": 128.0, "items": [1, 2, 3], "discount": 0.9, "store_id": 1}
     ],
     "orders": [],
     "users": [],
@@ -205,8 +226,60 @@ DEFAULT_DATA = {
         "next_menu_id": 6,
         "next_category_id": 5,
         "next_combo_id": 2,
-        "next_user_id": 1
+        "next_user_id": 1,
+        "next_store_id": 1
     }
+}
+
+ROLE_LABELS = {
+    "customer": "客户端用户",
+    "merchant": "商家用户",
+    "admin": "管理员"
+}
+
+PORTAL_PORTS = {
+    "customer": int(os.environ.get("CUSTOMER_PORT", "5001")),
+    "merchant": int(os.environ.get("MERCHANT_PORT", "5002")),
+    "admin": int(os.environ.get("ADMIN_PORT", "5003"))
+}
+
+SESSION_COOKIE_NAMES = {
+    "customer": "customer_portal_session",
+    "merchant": "merchant_portal_session",
+    "admin": "admin_portal_session"
+}
+
+DEFAULT_ACCOUNTS = [
+    {
+        "username": "merchant",
+        "password": "merchant123",
+        "phone": "",
+        "role": "merchant",
+        "addresses": [],
+        "store_name": "川味小馆",
+        "store_description": "主打川菜、盖饭和家常套餐。"
+    },
+    {
+        "username": "merchant2",
+        "password": "merchant123",
+        "phone": "",
+        "role": "merchant",
+        "addresses": [],
+        "store_name": "轻食能量站",
+        "store_description": "轻食沙拉、三明治与健康套餐。"
+    },
+    {
+        "username": "admin",
+        "password": "admin123456",
+        "phone": "",
+        "role": "admin",
+        "addresses": []
+    }
+]
+
+DEFAULT_STORE_VISUALS = {
+    "avatar_url": "/static/store-avatar-default.svg",
+    "cover_image_url": "/static/store-cover-default.svg"
 }
 
 # 数据加载和保存函数
@@ -222,9 +295,12 @@ def load_data():
 
 def save_data(data):
     """将数据保存到文件"""
+    global DATA_FILE_MTIME
     try:
         with open(DATA_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        if os.path.exists(DATA_FILE):
+            DATA_FILE_MTIME = os.path.getmtime(DATA_FILE)
     except IOError as e:
         print(f"Error saving data: {e}")
 
@@ -237,6 +313,9 @@ def get_all_data():
 
 # 加载数据
 app_data = load_data()
+if os.path.exists(DATA_FILE):
+    DATA_FILE_MTIME = os.path.getmtime(DATA_FILE)
+stores = app_data.get('stores', DEFAULT_DATA['stores'])
 categories = app_data.get('categories', DEFAULT_DATA['categories'])
 menu = app_data.get('menu', DEFAULT_DATA['menu'])
 combos = app_data.get('combos', DEFAULT_DATA['combos'])
@@ -249,22 +328,650 @@ next_menu_id = counters.get('next_menu_id', 6)
 next_category_id = counters.get('next_category_id', 5)
 next_combo_id = counters.get('next_combo_id', 2)
 next_user_id = counters.get('next_user_id', 1)
+next_store_id = counters.get('next_store_id', 1)
+
+user_sessions = {}  # session_id -> {"user_id": int, "role": str}
+
+def refresh_runtime_data_from_disk(force=False):
+    global app_data, stores, categories, menu, combos, orders, users, counters
+    global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, next_store_id, DATA_FILE_MTIME
+
+    if not os.path.exists(DATA_FILE):
+        return False
+
+    current_mtime = os.path.getmtime(DATA_FILE)
+    if not force and current_mtime <= DATA_FILE_MTIME:
+        return False
+
+    latest_data = load_data()
+    app_data = latest_data
+    stores = latest_data.get('stores', DEFAULT_DATA['stores'])
+    categories = latest_data.get('categories', DEFAULT_DATA['categories'])
+    menu = latest_data.get('menu', DEFAULT_DATA['menu'])
+    combos = latest_data.get('combos', DEFAULT_DATA['combos'])
+    orders = latest_data.get('orders', DEFAULT_DATA['orders'])
+    users = latest_data.get('users', DEFAULT_DATA['users'])
+    counters = latest_data.get('counters', DEFAULT_DATA['counters'])
+
+    next_order_id = counters.get('next_order_id', 1)
+    next_menu_id = counters.get('next_menu_id', 6)
+    next_category_id = counters.get('next_category_id', 5)
+    next_combo_id = counters.get('next_combo_id', 2)
+    next_user_id = counters.get('next_user_id', 1)
+    next_store_id = counters.get('next_store_id', 1)
+    DATA_FILE_MTIME = current_mtime
+    return True
+
+@app.before_request
+def sync_runtime_data_before_request():
+    if request.path.startswith('/static/'):
+        return None
+    refresh_runtime_data_from_disk()
+    return None
+
+def get_store_by_id(store_id):
+    return next((store for store in stores if store.get('id') == store_id), None)
+
+def get_store_by_owner_user_id(user_id):
+    return next((store for store in stores if store.get('owner_user_id') == user_id), None)
+
+def calculate_store_monthly_sales(store_id):
+    if not store_id:
+        return 0
+    current_month = datetime.now().strftime("%Y-%m")
+    count = 0
+    for order in orders:
+        if order.get("store_id") != store_id or order.get("status") == "已取消":
+            continue
+        created_at = order.get("created_at", "")
+        if isinstance(created_at, str) and created_at.startswith(current_month):
+            count += 1
+    return count
+
+def serialize_store(store):
+    if not store:
+        return None
+    store_id = store.get("id")
+    return {
+        "id": store_id,
+        "name": store.get("name"),
+        "description": store.get("description", ""),
+        "owner_user_id": store.get("owner_user_id"),
+        "owner_username": next((user.get("username") for user in users if user.get("id") == store.get("owner_user_id")), ""),
+        "status": store.get("status", "active"),
+        "avatar_url": store.get("avatar_url", DEFAULT_STORE_VISUALS["avatar_url"]),
+        "cover_image_url": store.get("cover_image_url", DEFAULT_STORE_VISUALS["cover_image_url"]),
+        "business_status": store.get("business_status", "营业中"),
+        "business_hours": store.get("business_hours", "09:00-22:00"),
+        "rating": float(store.get("rating", 4.8)),
+        "monthly_sales": calculate_store_monthly_sales(store_id),
+        "delivery_fee": float(store.get("delivery_fee", 4.0)),
+        "min_order_amount": float(store.get("min_order_amount", 20.0)),
+        "announcement": store.get("announcement", "欢迎光临本店，祝您用餐愉快。"),
+        "created_at": store.get("created_at", ""),
+        "menu_count": len([item for item in menu if item.get("store_id") == store_id]),
+        "combo_count": len([combo for combo in combos if combo.get("store_id") == store_id]),
+        "completed_order_count": len([order for order in orders if order.get("store_id") == store_id and order.get("status") == "已完成"]),
+        "pending_order_count": len([order for order in orders if order.get("store_id") == store_id and order.get("status") == "已接单"]),
+        "total_revenue": round(sum(float(order.get("total", 0)) for order in orders if order.get("store_id") == store_id and order.get("status") == "已完成"), 2)
+    }
+
+def get_user_store(user):
+    if not user:
+        return None
+    store_id = user.get("store_id")
+    if store_id:
+        return get_store_by_id(store_id)
+    return get_store_by_owner_user_id(user.get("id"))
+
+def create_store_for_user(user, store_name=None, description=None):
+    global next_store_id
+    existing_store = get_user_store(user)
+    if existing_store:
+        if not user.get("store_id"):
+            user["store_id"] = existing_store["id"]
+        return existing_store
+
+    store = {
+        "id": next_store_id,
+        "owner_user_id": user["id"],
+        "name": store_name or user.get("store_name") or f"{user['username']}店铺",
+        "description": description or user.get("store_description", ""),
+        "status": "active",
+        "avatar_url": DEFAULT_STORE_VISUALS["avatar_url"],
+        "cover_image_url": DEFAULT_STORE_VISUALS["cover_image_url"],
+        "business_status": "营业中",
+        "business_hours": "09:00-22:00",
+        "rating": 4.8,
+        "delivery_fee": 4.0,
+        "min_order_amount": 20.0,
+        "announcement": "欢迎光临本店，祝您用餐愉快。",
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    stores.append(store)
+    user["store_id"] = next_store_id
+    next_store_id += 1
+    return store
+
+def get_visible_stores():
+    return [serialize_store(store) for store in stores if store.get("status", "active") == "active"]
+
+def get_store_id_for_request(user, allow_all_for_admin=False):
+    role = user.get('role', 'customer')
+    requested_store_id = request.args.get('store_id', type=int)
+
+    if role == 'merchant':
+        store = get_user_store(user)
+        return store.get('id') if store else None
+
+    if role == 'customer':
+        if request.method == 'GET':
+            return requested_store_id
+        body = request.get_json(silent=True) or {}
+        return body.get('store_id')
+
+    if role == 'admin':
+        if allow_all_for_admin and not requested_store_id:
+            return None
+        return requested_store_id
+
+    return None
+
+def filter_records_by_store(records, store_id):
+    if store_id is None:
+        return list(records)
+    return [record for record in records if record.get('store_id') == store_id]
+
+def normalize_users():
+    """补齐历史数据中的用户角色字段。"""
+    changed = False
+    for user in users:
+        if not user.get('role'):
+            user['role'] = 'customer'
+            changed = True
+        if 'addresses' not in user:
+            user['addresses'] = []
+            changed = True
+        if 'phone' not in user:
+            user['phone'] = ''
+            changed = True
+        if 'account_status' not in user:
+            user['account_status'] = 'active'
+            changed = True
+        if 'risk_status' not in user:
+            user['risk_status'] = 'normal'
+            changed = True
+        if 'admin_note' not in user:
+            user['admin_note'] = ''
+            changed = True
+        if user.get('role') == 'merchant':
+            if 'store_name' not in user:
+                user['store_name'] = f"{user.get('username', '商家')}店铺"
+                changed = True
+            if 'store_description' not in user:
+                user['store_description'] = ''
+                changed = True
+    return changed
+
+def normalize_stores_and_relations():
+    global next_store_id, next_category_id, next_menu_id, next_combo_id
+    changed = False
+
+    merchant_users = [user for user in users if user.get('role') == 'merchant']
+    for user in merchant_users:
+        existing_store = get_user_store(user)
+        if not existing_store:
+            create_store_for_user(user)
+            changed = True
+        elif user.get("store_id") != existing_store.get("id"):
+            user["store_id"] = existing_store.get("id")
+            changed = True
+
+    for user in merchant_users:
+        store = get_user_store(user)
+        if not store:
+            continue
+        if user.get("username") == "merchant":
+            defaults = {
+                "name": "川味小馆",
+                "description": "主打川菜、盖饭和家常套餐。",
+                "business_hours": "10:00-22:30",
+                "rating": 4.9,
+                "delivery_fee": 3.5,
+                "min_order_amount": 18.0,
+                "announcement": "招牌麻辣香锅和家庭套餐限时热销中。"
+            }
+        elif user.get("username") == "merchant2":
+            defaults = {
+                "name": "轻食能量站",
+                "description": "轻食沙拉、三明治与健康套餐。",
+                "business_hours": "08:30-20:30",
+                "rating": 4.7,
+                "delivery_fee": 2.0,
+                "min_order_amount": 15.0,
+                "announcement": "工作日午餐高峰请提前下单，轻食套餐可减脂搭配。"
+            }
+        else:
+            defaults = {
+                "name": user.get("store_name") or store.get("name"),
+                "description": user.get("store_description", ""),
+                "business_hours": "09:00-21:30",
+                "rating": 4.8,
+                "delivery_fee": 4.0,
+                "min_order_amount": 20.0,
+                "announcement": "欢迎光临本店，更多优惠活动持续上线。"
+            }
+        for key, value in defaults.items():
+            if store.get(key) != value and (key in ("name", "description") and user.get("username") in ("merchant", "merchant2") or store.get(key) in (None, "", 4.8, 4.0, 20.0, "09:00-22:00", "欢迎光临本店，祝您用餐愉快。")):
+                store[key] = value
+                changed = True
+
+    primary_store = get_user_store(merchant_users[0]) if merchant_users else None
+    primary_store_id = primary_store.get("id") if primary_store else None
+
+    for category in categories:
+        if not category.get('store_id') and primary_store_id:
+            category['store_id'] = primary_store_id
+            changed = True
+
+    for item in menu:
+        if not item.get('store_id'):
+            if item.get('category_id'):
+                category = next((cat for cat in categories if cat.get('id') == item.get('category_id')), None)
+                if category and category.get('store_id'):
+                    item['store_id'] = category.get('store_id')
+                elif primary_store_id:
+                    item['store_id'] = primary_store_id
+            elif primary_store_id:
+                item['store_id'] = primary_store_id
+            changed = True
+
+    for combo in combos:
+        if not combo.get('store_id'):
+            first_item_id = (combo.get('items') or [None])[0]
+            combo_item = next((item for item in menu if item.get('id') == first_item_id), None)
+            combo['store_id'] = combo_item.get('store_id') if combo_item else primary_store_id
+            changed = True
+
+    for order in orders:
+        if not order.get('store_id'):
+            first_item_id = (order.get('items') or [{}])[0].get('id')
+            first_menu_item = next((item for item in menu if item.get('id') == first_item_id), None)
+            if first_menu_item:
+                order['store_id'] = first_menu_item.get('store_id')
+            elif primary_store_id:
+                order['store_id'] = primary_store_id
+            changed = True
+        if order.get('store_id') and not order.get('store_name'):
+            store = get_store_by_id(order.get('store_id'))
+            if store:
+                order['store_name'] = store.get('name')
+                changed = True
+
+    for store in stores:
+        if store.get("status") not in ("active", "inactive"):
+            store["status"] = "active"
+            changed = True
+        if "avatar_url" not in store:
+            store["avatar_url"] = DEFAULT_STORE_VISUALS["avatar_url"]
+            changed = True
+        if "cover_image_url" not in store:
+            store["cover_image_url"] = DEFAULT_STORE_VISUALS["cover_image_url"]
+            changed = True
+        if "business_status" not in store:
+            store["business_status"] = "营业中"
+            changed = True
+        if "business_hours" not in store:
+            store["business_hours"] = "09:00-22:00"
+            changed = True
+        if "rating" not in store:
+            store["rating"] = 4.8
+            changed = True
+        if "delivery_fee" not in store:
+            store["delivery_fee"] = 4.0
+            changed = True
+        if "min_order_amount" not in store:
+            store["min_order_amount"] = 20.0
+            changed = True
+        if "announcement" not in store:
+            store["announcement"] = "欢迎光临本店，祝您用餐愉快。"
+            changed = True
+
+    if len(stores) >= 2:
+        for store in stores:
+            if any(category.get('store_id') == store.get('id') for category in categories):
+                continue
+
+            store_categories = [
+                {"id": next_category_id, "name": "沙拉轻食", "store_id": store["id"]},
+                {"id": next_category_id + 1, "name": "能量主食", "store_id": store["id"]},
+                {"id": next_category_id + 2, "name": "饮品", "store_id": store["id"]}
+            ]
+            categories.extend(store_categories)
+            next_category_id += 3
+
+            store_menu = [
+                {
+                    "id": next_menu_id,
+                    "name": "鸡胸肉凯撒沙拉",
+                    "description": "高蛋白低负担，适合轻食午餐。",
+                    "price": 26.0,
+                    "category_id": store_categories[0]["id"],
+                    "store_id": store["id"],
+                    "image": None
+                },
+                {
+                    "id": next_menu_id + 1,
+                    "name": "牛油果鸡肉三明治",
+                    "description": "口感清爽，适合工作日快速补能。",
+                    "price": 24.0,
+                    "category_id": store_categories[1]["id"],
+                    "store_id": store["id"],
+                    "image": None
+                },
+                {
+                    "id": next_menu_id + 2,
+                    "name": "鲜榨橙汁",
+                    "description": "现榨果饮，清新解腻。",
+                    "price": 12.0,
+                    "category_id": store_categories[2]["id"],
+                    "store_id": store["id"],
+                    "image": None
+                }
+            ]
+            menu.extend(store_menu)
+            next_menu_id += 3
+
+            combos.append({
+                "id": next_combo_id,
+                "name": f"{store['name']}双人轻食套餐",
+                "description": "适合双人轻食简餐搭配。",
+                "price": 58.0,
+                "items": [store_menu[0]["id"], store_menu[1]["id"], store_menu[2]["id"]],
+                "discount": 0.92,
+                "store_id": store["id"]
+            })
+            next_combo_id += 1
+            changed = True
+
+    return changed
+
+def ensure_default_accounts():
+    """确保系统内置商家和管理员账号存在。"""
+    global next_user_id
+    changed = False
+    for account in DEFAULT_ACCOUNTS:
+        exists = next((u for u in users if u.get('username') == account['username']), None)
+        if exists:
+            if exists.get('role') != account['role']:
+                exists['role'] = account['role']
+                changed = True
+            continue
+
+        user = {
+            "id": next_user_id,
+            "username": account['username'],
+            "password": account['password'],
+            "phone": account['phone'],
+            "role": account['role'],
+            "addresses": account['addresses'],
+            "store_name": account.get('store_name', ''),
+            "store_description": account.get('store_description', ''),
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        users.append(user)
+        next_user_id += 1
+        changed = True
+    return changed
+
+def create_session(user):
+    session_id = f"session_{user['id']}_{datetime.now().timestamp()}"
+    user_sessions[session_id] = {
+        "user_id": user['id'],
+        "role": user.get('role', 'customer')
+    }
+    return session_id
+
+def get_request_port():
+    host = (request.host or "").strip()
+    if ":" in host:
+        try:
+            return int(host.rsplit(":", 1)[1])
+        except ValueError:
+            pass
+    try:
+        return int(request.environ.get("SERVER_PORT", PORTAL_PORTS["customer"]))
+    except (TypeError, ValueError):
+        return PORTAL_PORTS["customer"]
+
+def get_request_hostname():
+    host = (request.host or "").strip()
+    if host.startswith("[") and "]" in host:
+        return host.split("]")[0] + "]"
+    if ":" in host:
+        return host.rsplit(":", 1)[0]
+    return host or "127.0.0.1"
+
+def get_active_portal_role():
+    request_port = get_request_port()
+    for role, port in PORTAL_PORTS.items():
+        if port == request_port:
+            return role
+    return "customer"
+
+def build_portal_url(role, path="/"):
+    hostname = get_request_hostname()
+    scheme = request.scheme or "http"
+    port = PORTAL_PORTS.get(role, PORTAL_PORTS["customer"])
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    return f"{scheme}://{hostname}:{port}{normalized_path}"
+
+def get_portal_navigation_urls():
+    return {
+        "customer_url": build_portal_url("customer", "/"),
+        "merchant_url": build_portal_url("merchant", "/"),
+        "admin_url": build_portal_url("admin", "/"),
+        "chat_url": build_portal_url(get_active_portal_role(), "/chat")
+    }
+
+def get_session_cookie_name(role):
+    return SESSION_COOKIE_NAMES.get(role, SESSION_COOKIE_NAMES["customer"])
+
+def get_user_by_portal_cookie(role):
+    session_id = request.cookies.get(get_session_cookie_name(role), "").strip()
+    if not session_id:
+        return None
+
+    session_payload = get_session_payload(session_id)
+    if not session_payload:
+        return None
+
+    user = next((u for u in users if u.get("id") == session_payload.get("user_id")), None)
+    if not user:
+        return None
+
+    if user.get("account_status", "active") != "active":
+        return None
+
+    if user.get("role", "customer") != role:
+        return None
+    return user
+
+def build_portal_response(role):
+    user = get_user_by_portal_cookie(role)
+    if not user:
+        return redirect("/login")
+
+    template_map = {
+        "customer": "index.html",
+        "merchant": "merchant.html",
+        "admin": "admin.html"
+    }
+    return render_template(
+        template_map[role],
+        current_role=role,
+        current_user=serialize_user(user),
+        **get_portal_navigation_urls(),
+        **get_cross_portal_feature_urls()
+    )
+
+def get_cross_portal_feature_urls():
+    return {
+        "customer_chat_url": build_portal_url("customer", "/chat"),
+        "customer_order_assistant_url": build_portal_url("customer", "/smart-order"),
+        "merchant_analysis_url": build_portal_url("merchant", "/data-analysis")
+    }
+
+def render_portal_template(role, template_name, **context):
+    return render_template(
+        template_name,
+        current_role=role,
+        current_user=serialize_user(get_user_by_portal_cookie(role)),
+        **get_portal_navigation_urls(),
+        **get_cross_portal_feature_urls(),
+        **context
+    )
+
+def require_portal_page_access(role):
+    if get_active_portal_role() != role:
+        return None, redirect(build_portal_url(role, request.path))
+
+    user = get_user_by_portal_cookie(role)
+    if not user:
+        return None, redirect(build_portal_url(role, "/login"))
+    return user, None
+
+def with_session_cookie(response, role, session_id):
+    response.set_cookie(
+        get_session_cookie_name(role),
+        session_id,
+        httponly=True,
+        samesite="Lax"
+    )
+    return response
+
+def get_session_payload(session_id):
+    if not session_id:
+        return None
+    payload = user_sessions.get(session_id)
+    if isinstance(payload, int):
+        return {"user_id": payload, "role": "customer"}
+    return payload
+
+def mark_service_metric(service_name, success=True):
+    now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if service_name == 'ai_chat':
+        SERVICE_MONITOR["ai_chat_requests"] += 1
+        SERVICE_MONITOR["last_ai_chat_at"] = now_text
+        if not success:
+            SERVICE_MONITOR["ai_chat_failures"] += 1
+    elif service_name == 'smart_order':
+        SERVICE_MONITOR["smart_order_requests"] += 1
+        SERVICE_MONITOR["last_smart_order_at"] = now_text
+        if not success:
+            SERVICE_MONITOR["smart_order_failures"] += 1
+    elif service_name == 'data_analysis':
+        SERVICE_MONITOR["data_analysis_requests"] += 1
+        SERVICE_MONITOR["last_data_analysis_at"] = now_text
+        if not success:
+            SERVICE_MONITOR["data_analysis_failures"] += 1
+
+def get_authenticated_user(required_roles=None):
+    session_id = request.headers.get('X-Session-ID')
+    if not session_id:
+        active_role = get_active_portal_role()
+        session_id = request.cookies.get(get_session_cookie_name(active_role), "").strip()
+    session_payload = get_session_payload(session_id)
+    if not session_payload:
+        return None, jsonify({"error": "未登录。"}), 401
+
+    user = next((u for u in users if u.get('id') == session_payload.get('user_id')), None)
+    if not user:
+        return None, jsonify({"error": "用户不存在。"}), 404
+
+    if user.get('account_status', 'active') != 'active':
+        return None, jsonify({"error": "当前账户已被限制使用。"}), 403
+
+    role = user.get('role', 'customer')
+    if required_roles and role not in required_roles:
+        return None, jsonify({"error": "无权限访问该资源。"}), 403
+
+    return user, None, None
+
+def serialize_user(user):
+    store = get_user_store(user)
+    return {
+        "id": user['id'],
+        "username": user['username'],
+        "phone": user.get('phone', ''),
+        "role": user.get('role', 'customer'),
+        "role_label": ROLE_LABELS.get(user.get('role', 'customer'), user.get('role', 'customer')),
+        "account_status": user.get('account_status', 'active'),
+        "risk_status": user.get('risk_status', 'normal'),
+        "admin_note": user.get('admin_note', ''),
+        "addresses": user.get('addresses', []),
+        "created_at": user.get('created_at', ''),
+        "store_id": store.get('id') if store else None,
+        "store_name": store.get('name') if store else user.get('store_name', '')
+    }
+
+def get_portal_login_context(role):
+    contexts = {
+        "customer": {
+            "role": "customer",
+            "title": "客户端登录",
+            "subtitle": "用户登录与注册",
+            "portal_name": "客户端",
+            "allow_register": True,
+            "submit_label": "登录客户端",
+            "register_label": "注册客户端账户",
+            "target_path": "/",
+            "register_path": "/login"
+        },
+        "merchant": {
+            "role": "merchant",
+            "title": "商家端登录",
+            "subtitle": "商家用户登录与注册",
+            "portal_name": "商家端",
+            "allow_register": True,
+            "submit_label": "登录商家端",
+            "register_label": "注册商家账户",
+            "target_path": "/",
+            "register_path": "/login"
+        },
+        "admin": {
+            "role": "admin",
+            "title": "后台管理员登录",
+            "subtitle": "仅管理员可访问后台管理端",
+            "portal_name": "后台管理端",
+            "allow_register": False,
+            "submit_label": "登录后台",
+            "register_label": "",
+            "target_path": "/",
+            "register_path": "/login"
+        }
+    }
+    context = contexts.get(role, contexts["customer"]).copy()
+    context.update(get_portal_navigation_urls())
+    return context
 
 def update_counters():
     """更新计数器"""
-    global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, counters
+    global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, next_store_id, counters
     counters = {
         'next_order_id': next_order_id,
         'next_menu_id': next_menu_id,
         'next_category_id': next_category_id,
         'next_combo_id': next_combo_id,
-        'next_user_id': next_user_id
+        'next_user_id': next_user_id,
+        'next_store_id': next_store_id
     }
 
 def persist_data():
     """持久化所有数据到文件"""
     update_counters()
     data = {
+        'stores': stores,
         'categories': categories,
         'menu': menu,
         'combos': combos,
@@ -274,30 +981,160 @@ def persist_data():
     }
     save_data(data)
 
+users_normalized = normalize_users()
+default_accounts_ready = ensure_default_accounts()
+stores_normalized = normalize_stores_and_relations()
+if users_normalized or default_accounts_ready or stores_normalized:
+    persist_data()
+
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return build_portal_response(get_active_portal_role())
 
 @app.route('/login')
 def login():
-    return render_template('login.html')
+    active_role = get_active_portal_role()
+    if get_user_by_portal_cookie(active_role):
+        return redirect("/")
+    return render_template('login.html', **get_portal_login_context(active_role))
+
+@app.route('/merchant/login')
+def merchant_login():
+    return redirect(build_portal_url("merchant", "/login"))
 
 @app.route('/merchant')
 def merchant():
-    return render_template('merchant.html')
+    return redirect(build_portal_url("merchant", "/"))
+
+@app.route('/admin/login')
+def admin_login():
+    return redirect(build_portal_url("admin", "/login"))
+
+@app.route('/admin')
+def admin():
+    return redirect(build_portal_url("admin", "/"))
 
 @app.route('/chat')
 def chat():
-    return render_template('chat.html')
+    user, redirect_response = require_portal_page_access('customer')
+    if redirect_response:
+        return redirect_response
+    return render_portal_template('customer', 'chat.html')
+
+@app.route('/smart-order')
+def smart_order():
+    user, redirect_response = require_portal_page_access('customer')
+    if redirect_response:
+        return redirect_response
+    return render_portal_template('customer', 'smart_order.html')
+
+@app.route('/data-analysis')
+def data_analysis():
+    user, redirect_response = require_portal_page_access('merchant')
+    if redirect_response:
+        return redirect_response
+    return render_portal_template('merchant', 'data_analysis.html')
 
 # 分类管理API
 @app.route('/api/categories', methods=['GET'])
 def get_categories():
-    return jsonify({"categories": categories})
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer', 'merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user, allow_all_for_admin=True)
+    if user.get('role') == 'customer' and not store_id:
+        return jsonify({"error": "请选择店铺后再查看分类。"}), 400
+    return jsonify({"categories": filter_records_by_store(categories, store_id)})
+
+@app.route('/api/stores', methods=['GET'])
+def get_stores():
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer', 'merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+
+    if user.get('role') == 'merchant':
+        return jsonify({"stores": [serialize_store(get_user_store(user))]})
+    if user.get('role') == 'admin':
+        return jsonify({"stores": [serialize_store(store) for store in stores]})
+    return jsonify({"stores": get_visible_stores()})
+
+@app.route('/api/stores/<int:store_id>', methods=['PUT'])
+def update_store(store_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+
+    store = get_store_by_id(store_id)
+    if not store:
+        return jsonify({"error": "未找到该店铺。"}), 404
+
+    if user.get('role') == 'merchant':
+        merchant_store = get_user_store(user)
+        if not merchant_store or merchant_store.get('id') != store_id:
+            return jsonify({"error": "无权限编辑该店铺。"}), 403
+
+    data = request.get_json() or {}
+
+    store_name = str(data.get('name', '')).strip()
+    description = str(data.get('description', '')).strip()
+    avatar_url = data.get('avatar_url') or DEFAULT_STORE_VISUALS["avatar_url"]
+    cover_image_url = data.get('cover_image_url') or DEFAULT_STORE_VISUALS["cover_image_url"]
+    business_status = str(data.get('business_status', '营业中')).strip() or '营业中'
+    business_hours = str(data.get('business_hours', '09:00-22:00')).strip() or '09:00-22:00'
+    announcement = str(data.get('announcement', '')).strip() or '欢迎光临本店，祝您用餐愉快。'
+    status = str(data.get('status', store.get('status', 'active'))).strip() or 'active'
+
+    if not store_name:
+        return jsonify({"error": "店铺名称不能为空。"}), 400
+    if status not in ('active', 'inactive'):
+        return jsonify({"error": "店铺状态不合法。"}), 400
+
+    try:
+        rating = float(data.get('rating', store.get('rating', 4.8)))
+        delivery_fee = float(data.get('delivery_fee', store.get('delivery_fee', 4.0)))
+        min_order_amount = float(data.get('min_order_amount', store.get('min_order_amount', 20.0)))
+    except (TypeError, ValueError):
+        return jsonify({"error": "评分、配送费和起送价必须是数字。"}), 400
+
+    if rating < 0 or rating > 5:
+        return jsonify({"error": "评分必须在 0 到 5 之间。"}), 400
+    if delivery_fee < 0 or min_order_amount < 0:
+        return jsonify({"error": "配送费和起送价不能为负数。"}), 400
+
+    store['name'] = store_name
+    store['description'] = description
+    store['avatar_url'] = avatar_url
+    store['cover_image_url'] = cover_image_url
+    store['business_status'] = business_status
+    store['business_hours'] = business_hours
+    store['rating'] = rating
+    store['delivery_fee'] = delivery_fee
+    store['min_order_amount'] = min_order_amount
+    store['announcement'] = announcement
+    store['status'] = status
+
+    owner_user = next((item for item in users if item.get('id') == store.get('owner_user_id')), None)
+    if owner_user:
+        owner_user['store_id'] = store['id']
+        owner_user['store_name'] = store_name
+        owner_user['store_description'] = description
+
+    for order in orders:
+        if order.get('store_id') == store['id']:
+            order['store_name'] = store_name
+
+    persist_data()
+    return jsonify({"store": serialize_store(store)})
 
 @app.route('/api/categories', methods=['POST'])
 def add_category():
     global next_category_id
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user)
+    if not store_id:
+        return jsonify({"error": "当前商家店铺不存在。"}), 400
     data = request.get_json() or {}
     name = data.get('name', '').strip()
 
@@ -306,7 +1143,8 @@ def add_category():
 
     category = {
         "id": next_category_id,
-        "name": name
+        "name": name,
+        "store_id": store_id
     }
     categories.append(category)
     next_category_id += 1
@@ -315,8 +1153,12 @@ def add_category():
 
 @app.route('/api/categories/<int:category_id>', methods=['PUT'])
 def update_category(category_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user)
     data = request.get_json() or {}
-    category = next((c for c in categories if c['id'] == category_id), None)
+    category = next((c for c in categories if c['id'] == category_id and (store_id is None or c.get('store_id') == store_id)), None)
     if not category:
         return jsonify({"error": "未找到该分类。"}), 404
 
@@ -331,12 +1173,16 @@ def update_category(category_id):
 @app.route('/api/categories/<int:category_id>', methods=['DELETE'])
 def delete_category(category_id):
     global categories, menu
-    category = next((c for c in categories if c['id'] == category_id), None)
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user)
+    category = next((c for c in categories if c['id'] == category_id and (store_id is None or c.get('store_id') == store_id)), None)
     if not category:
         return jsonify({"error": "未找到该分类。"}), 404
 
     # 检查是否有商品使用此分类
-    if any(item['category_id'] == category_id for item in menu):
+    if any(item['category_id'] == category_id and item.get('store_id') == category.get('store_id') for item in menu):
         return jsonify({"error": "该分类下有商品，无法删除。"}), 400
 
     categories = [c for c in categories if c['id'] != category_id]
@@ -346,15 +1192,28 @@ def delete_category(category_id):
 # 商品管理API
 @app.route('/api/menu', methods=['GET'])
 def get_menu():
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer', 'merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user, allow_all_for_admin=True)
+    if user.get('role') == 'customer' and not store_id:
+        return jsonify({"error": "请选择店铺后再查看菜品。"}), 400
     category_id = request.args.get('category_id', type=int)
+    scoped_menu = filter_records_by_store(menu, store_id)
     if category_id:
-        filtered_menu = [item for item in menu if item['category_id'] == category_id]
+        filtered_menu = [item for item in scoped_menu if item['category_id'] == category_id]
         return jsonify({"menu": filtered_menu})
-    return jsonify({"menu": menu})
+    return jsonify({"menu": scoped_menu})
 
 @app.route('/api/menu', methods=['POST'])
 def add_menu_item():
     global next_menu_id
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user)
+    if not store_id:
+        return jsonify({"error": "当前商家店铺不存在。"}), 400
     data = request.get_json() or {}
     name = data.get('name', '').strip()
     description = data.get('description', '').strip()
@@ -375,7 +1234,7 @@ def add_menu_item():
     except (TypeError, ValueError):
         return jsonify({"error": "请输入合法的价格和分类。"}), 400
 
-    if not any(cat['id'] == category_id for cat in categories):
+    if not any(cat['id'] == category_id and cat.get('store_id') == store_id for cat in categories):
         return jsonify({"error": "选择的分类不存在。"}), 400
 
     item = {
@@ -384,6 +1243,7 @@ def add_menu_item():
         "description": description,
         "price": round(price, 2),
         "category_id": category_id,
+        "store_id": store_id,
         "image": image
     }
     menu.append(item)
@@ -393,8 +1253,12 @@ def add_menu_item():
 
 @app.route('/api/menu/<int:item_id>', methods=['PUT'])
 def update_menu_item(item_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user)
     data = request.get_json() or {}
-    item = next((m for m in menu if m['id'] == item_id), None)
+    item = next((m for m in menu if m['id'] == item_id and (store_id is None or m.get('store_id') == store_id)), None)
     if not item:
         return jsonify({"error": "未找到该商品。"}), 404
 
@@ -417,7 +1281,7 @@ def update_menu_item(item_id):
     except (TypeError, ValueError):
         return jsonify({"error": "请输入合法的价格和分类。"}), 400
 
-    if not any(cat['id'] == category_id for cat in categories):
+    if not any(cat['id'] == category_id and cat.get('store_id') == item.get('store_id') for cat in categories):
         return jsonify({"error": "选择的分类不存在。"}), 400
 
     item['name'] = name
@@ -434,7 +1298,11 @@ def update_menu_item(item_id):
 @app.route('/api/menu/<int:item_id>', methods=['DELETE'])
 def delete_menu_item(item_id):
     global menu
-    item = next((m for m in menu if m['id'] == item_id), None)
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user)
+    item = next((m for m in menu if m['id'] == item_id and (store_id is None or m.get('store_id') == store_id)), None)
     if not item:
         return jsonify({"error": "未找到该商品。"}), 404
     menu = [m for m in menu if m['id'] != item_id]
@@ -444,11 +1312,23 @@ def delete_menu_item(item_id):
 # 套餐管理API
 @app.route('/api/combos', methods=['GET'])
 def get_combos():
-    return jsonify({"combos": combos})
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer', 'merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user, allow_all_for_admin=True)
+    if user.get('role') == 'customer' and not store_id:
+        return jsonify({"error": "请选择店铺后再查看套餐。"}), 400
+    return jsonify({"combos": filter_records_by_store(combos, store_id)})
 
 @app.route('/api/combos', methods=['POST'])
 def add_combo():
     global next_combo_id
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user)
+    if not store_id:
+        return jsonify({"error": "当前商家店铺不存在。"}), 400
     data = request.get_json() or {}
     name = data.get('name', '').strip()
     description = data.get('description', '').strip()
@@ -472,7 +1352,7 @@ def add_combo():
 
     # 验证商品存在
     for item_id in items:
-        if not any(m['id'] == item_id for m in menu):
+        if not any(m['id'] == item_id and m.get('store_id') == store_id for m in menu):
             return jsonify({"error": f"商品ID {item_id} 不存在。"}), 400
 
     combo = {
@@ -481,7 +1361,8 @@ def add_combo():
         "description": description,
         "price": round(price, 2),
         "items": items,
-        "discount": discount
+        "discount": discount,
+        "store_id": store_id
     }
     combos.append(combo)
     next_combo_id += 1
@@ -490,8 +1371,12 @@ def add_combo():
 
 @app.route('/api/combos/<int:combo_id>', methods=['PUT'])
 def update_combo(combo_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user)
     data = request.get_json() or {}
-    combo = next((c for c in combos if c['id'] == combo_id), None)
+    combo = next((c for c in combos if c['id'] == combo_id and (store_id is None or c.get('store_id') == store_id)), None)
     if not combo:
         return jsonify({"error": "未找到该套餐。"}), 404
 
@@ -517,7 +1402,7 @@ def update_combo(combo_id):
 
     # 验证商品存在
     for item_id in items:
-        if not any(m['id'] == item_id for m in menu):
+        if not any(m['id'] == item_id and m.get('store_id') == combo.get('store_id') for m in menu):
             return jsonify({"error": f"商品ID {item_id} 不存在。"}), 400
 
     combo['name'] = name
@@ -531,7 +1416,11 @@ def update_combo(combo_id):
 @app.route('/api/combos/<int:combo_id>', methods=['DELETE'])
 def delete_combo(combo_id):
     global combos
-    combo = next((c for c in combos if c['id'] == combo_id), None)
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user)
+    combo = next((c for c in combos if c['id'] == combo_id and (store_id is None or c.get('store_id') == store_id)), None)
     if not combo:
         return jsonify({"error": "未找到该套餐。"}), 404
     combos = [c for c in combos if c['id'] != combo_id]
@@ -541,15 +1430,22 @@ def delete_combo(combo_id):
 # 工作台统计API
 @app.route('/api/dashboard', methods=['GET'])
 def get_dashboard():
-    total_orders = len(orders)
-    total_revenue = sum(order['total'] for order in orders if order['status'] == '已完成')
-    pending_orders = len([o for o in orders if o['status'] == '已接单'])
-    completed_orders = len([o for o in orders if o['status'] == '已完成'])
-    cancelled_orders = len([o for o in orders if o['status'] == '已取消'])
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+    store_id = get_store_id_for_request(user, allow_all_for_admin=True)
+    scoped_orders = filter_records_by_store(orders, store_id)
+    scoped_menu = filter_records_by_store(menu, store_id)
+    scoped_combos = filter_records_by_store(combos, store_id)
+    total_orders = len(scoped_orders)
+    total_revenue = sum(order['total'] for order in scoped_orders if order['status'] == '已完成')
+    pending_orders = len([o for o in scoped_orders if o['status'] == '已接单'])
+    completed_orders = len([o for o in scoped_orders if o['status'] == '已完成'])
+    cancelled_orders = len([o for o in scoped_orders if o['status'] == '已取消'])
 
     # 今日统计
     today = datetime.now().date()
-    today_orders = [o for o in orders if datetime.strptime(o['created_at'], "%Y-%m-%d %H:%M:%S").date() == today]
+    today_orders = [o for o in scoped_orders if datetime.strptime(o['created_at'], "%Y-%m-%d %H:%M:%S").date() == today]
     today_revenue = sum(o['total'] for o in today_orders if o['status'] == '已完成')
 
     return jsonify({
@@ -560,29 +1456,47 @@ def get_dashboard():
         "cancelled_orders": cancelled_orders,
         "today_orders": len(today_orders),
         "today_revenue": round(today_revenue, 2),
-        "menu_count": len(menu),
-        "combo_count": len(combo)
+        "menu_count": len(scoped_menu),
+        "combo_count": len(scoped_combos)
     })
 
 # 订单管理API
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
     customer = request.args.get('customer', '').strip()
-    if customer:
-        filtered_orders = [o for o in orders if o['customer'] == customer]
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer', 'merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+
+    if user.get('role') == 'customer':
+        target_customer = customer or user.get('username')
+        filtered_orders = [o for o in orders if o['customer'] == target_customer]
         return jsonify({"orders": filtered_orders})
-    return jsonify({"orders": orders})
+
+    store_id = get_store_id_for_request(user, allow_all_for_admin=True)
+    scoped_orders = filter_records_by_store(orders, store_id)
+    if customer:
+        filtered_orders = [o for o in scoped_orders if o['customer'] == customer]
+        return jsonify({"orders": filtered_orders})
+    return jsonify({"orders": scoped_orders})
 
 @app.route('/api/order', methods=['POST'])
 def create_order():
     global next_order_id
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
     data = request.get_json() or {}
-    customer = data.get('customer', '').strip()
+    customer = user.get('username')
+    store_id = data.get('store_id')
     items = data.get('items', [])
     combo_id = data.get('combo_id')
 
-    if not customer:
-        return jsonify({"error": "请输入姓名。"}), 400
+    if not store_id:
+        return jsonify({"error": "请选择店铺后再下单。"}), 400
+    store = get_store_by_id(int(store_id))
+    if not store:
+        return jsonify({"error": "店铺不存在。"}), 404
     if not items and not combo_id:
         return jsonify({"error": "请选择至少一个商品或套餐。"}), 400
 
@@ -591,7 +1505,7 @@ def create_order():
 
     # 处理普通商品
     for item in items:
-        menu_item = next((m for m in menu if m['id'] == item.get('id')), None)
+        menu_item = next((m for m in menu if m['id'] == item.get('id') and m.get('store_id') == int(store_id)), None)
         if not menu_item:
             continue
         quantity = max(1, int(item.get('quantity', 1)))
@@ -608,7 +1522,7 @@ def create_order():
 
     # 处理套餐
     if combo_id:
-        combo = next((c for c in combos if c['id'] == combo_id), None)
+        combo = next((c for c in combos if c['id'] == combo_id and c.get('store_id') == int(store_id)), None)
         if combo:
             combo_total = combo['price'] * combo['discount']
             order_items.append({
@@ -628,6 +1542,8 @@ def create_order():
     order = {
         "id": next_order_id,
         "customer": customer,
+        "store_id": int(store_id),
+        "store_name": store.get('name'),
         "items": order_items,
         "total": round(total, 2),
         "status": "已接单",
@@ -641,9 +1557,18 @@ def create_order():
 
 @app.route('/api/order/<int:order_id>/cancel', methods=['POST'])
 def cancel_order(order_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer', 'merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
     order = next((o for o in orders if o['id'] == order_id), None)
     if not order:
         return jsonify({"error": "未找到该订单。"}), 404
+    if user.get('role') == 'customer' and order.get('customer') != user.get('username'):
+        return jsonify({"error": "无权取消该订单。"}), 403
+    if user.get('role') == 'merchant':
+        merchant_store = get_user_store(user)
+        if not merchant_store or order.get('store_id') != merchant_store.get('id'):
+            return jsonify({"error": "无权取消其他店铺订单。"}), 403
     if order['status'] == '已取消':
         return jsonify({"error": "订单已取消。"}), 400
     if order['status'] == '已完成':
@@ -655,9 +1580,16 @@ def cancel_order(order_id):
 
 @app.route('/api/order/<int:order_id>/complete', methods=['POST'])
 def complete_order(order_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
     order = next((o for o in orders if o['id'] == order_id), None)
     if not order:
         return jsonify({"error": "未找到该订单。"}), 404
+    if user.get('role') == 'merchant':
+        merchant_store = get_user_store(user)
+        if not merchant_store or order.get('store_id') != merchant_store.get('id'):
+            return jsonify({"error": "无权处理其他店铺订单。"}), 403
     if order['status'] != '已接单':
         return jsonify({"error": "该订单无法标记为已完成。"}), 400
 
@@ -666,9 +1598,6 @@ def complete_order(order_id):
     return jsonify({"order": order})
 
 # 用户管理
-users = []
-next_user_id = 1
-user_sessions = {}  # 简单的 session 管理
 
 @app.route('/api/users/register', methods=['POST'])
 def register_user():
@@ -677,6 +1606,7 @@ def register_user():
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
     phone = data.get('phone', '').strip()
+    role = data.get('role', 'customer').strip()
 
     if not username:
         return jsonify({"error": "用户名不能为空。"}), 400
@@ -684,6 +1614,8 @@ def register_user():
         return jsonify({"error": "密码不能为空。"}), 400
     if len(password) < 6:
         return jsonify({"error": "密码至少6个字符。"}), 400
+    if role not in ('customer', 'merchant'):
+        return jsonify({"error": "仅支持注册客户端或商家账户。"}), 400
 
     # 检查用户名是否已存在
     if any(u['username'] == username for u in users):
@@ -694,32 +1626,36 @@ def register_user():
         "username": username,
         "password": password,
         "phone": phone,
+        "role": role,
+        "account_status": "active",
+        "risk_status": "normal",
+        "admin_note": "",
         "addresses": [],
+        "store_name": f"{username}店铺" if role == 'merchant' else '',
+        "store_description": '',
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     users.append(user)
     next_user_id += 1
+    if role == 'merchant':
+        create_store_for_user(user)
     persist_data()
 
     # 创建 session
-    session_id = f"session_{user['id']}_{datetime.now().timestamp()}"
-    user_sessions[session_id] = user['id']
+    session_id = create_session(user)
 
-    return jsonify({
-        "user": {
-            "id": user['id'],
-            "username": user['username'],
-            "phone": user['phone'],
-            "addresses": user['addresses']
-        },
+    response = make_response(jsonify({
+        "user": serialize_user(user),
         "session_id": session_id
-    }), 201
+    }), 201)
+    return with_session_cookie(response, role, session_id)
 
 @app.route('/api/users/login', methods=['POST'])
 def login_user():
     data = request.get_json() or {}
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
+    role = data.get('role', '').strip()
 
     if not username or not password:
         return jsonify({"error": "用户名和密码不能为空。"}), 400
@@ -727,82 +1663,289 @@ def login_user():
     user = next((u for u in users if u['username'] == username and u['password'] == password), None)
     if not user:
         return jsonify({"error": "用户名或密码错误。"}), 401
+    if user.get('account_status', 'active') != 'active':
+        return jsonify({"error": "当前账户已被禁用，请联系平台管理员。"}), 403
+    if role and user.get('role', 'customer') != role:
+        return jsonify({"error": "当前账号不属于该端口。"}), 403
 
-    # 创建 session
-    session_id = f"session_{user['id']}_{datetime.now().timestamp()}"
-    user_sessions[session_id] = user['id']
+    session_id = create_session(user)
 
-    return jsonify({
-        "user": {
-            "id": user['id'],
-            "username": user['username'],
-            "phone": user['phone'],
-            "addresses": user['addresses']
-        },
+    response = make_response(jsonify({
+        "user": serialize_user(user),
         "session_id": session_id
-    }), 200
+    }), 200)
+    return with_session_cookie(response, user.get('role', 'customer'), session_id)
 
 @app.route('/api/users/logout', methods=['POST'])
 def logout_user():
     data = request.get_json() or {}
     session_id = data.get('session_id')
+    session_payload = get_session_payload(session_id)
 
     if session_id and session_id in user_sessions:
         del user_sessions[session_id]
 
-    return jsonify({"success": True})
+    response = make_response(jsonify({"success": True}))
+    cookie_roles = ['customer', 'merchant', 'admin']
+    if session_payload and session_payload.get("role") in cookie_roles:
+        cookie_roles = [session_payload.get("role")]
+    for role in cookie_roles:
+        response.delete_cookie(get_session_cookie_name(role))
+    return response
 
 @app.route('/api/users/session', methods=['GET'])
 def get_user_session():
     session_id = request.headers.get('X-Session-ID')
-    
-    if not session_id or session_id not in user_sessions:
+    session_payload = get_session_payload(session_id)
+
+    if not session_payload:
         return jsonify({"error": "未登录。"}), 401
 
-    user_id = user_sessions[session_id]
-    user = next((u for u in users if u['id'] == user_id), None)
-    
+    user = next((u for u in users if u['id'] == session_payload.get('user_id')), None)
+
     if not user:
         return jsonify({"error": "用户不存在。"}), 404
+    if user.get('account_status', 'active') != 'active':
+        return jsonify({"error": "当前账户已被限制使用。"}), 403
 
     return jsonify({
-        "user": {
-            "id": user['id'],
-            "username": user['username'],
-            "phone": user['phone'],
-            "addresses": user['addresses']
-        },
+        "user": serialize_user(user),
         "session_id": session_id
     }), 200
+
+@app.route('/api/admin/overview', methods=['GET'])
+def get_admin_overview():
+    user, error_response, status_code = get_authenticated_user(required_roles=['admin'])
+    if error_response:
+        return error_response, status_code
+
+    merchant_users = [serialize_user(u) for u in users if u.get('role') == 'merchant']
+    customer_users = [serialize_user(u) for u in users if u.get('role') == 'customer']
+    recent_orders = sorted(orders, key=lambda o: o.get('id', 0), reverse=True)[:10]
+
+    total_revenue = sum(order['total'] for order in orders if order['status'] == '已完成')
+
+    return jsonify({
+        "stats": {
+            "user_count": len(users),
+            "customer_count": len(customer_users),
+            "merchant_count": len(merchant_users),
+            "admin_count": len([u for u in users if u.get('role') == 'admin']),
+            "disabled_user_count": len([u for u in users if u.get('account_status') == 'disabled']),
+            "flagged_user_count": len([u for u in users if u.get('risk_status') == 'flagged']),
+            "store_count": len(stores),
+            "active_store_count": len([store for store in stores if store.get('status') == 'active']),
+            "inactive_store_count": len([store for store in stores if store.get('status') == 'inactive']),
+            "order_count": len(orders),
+            "completed_order_count": len([o for o in orders if o.get('status') == '已完成']),
+            "cancelled_order_count": len([o for o in orders if o.get('status') == '已取消']),
+            "total_revenue": round(total_revenue, 2),
+            "menu_count": len(menu),
+            "combo_count": len(combos)
+        },
+        "customers": customer_users,
+        "merchants": merchant_users,
+        "stores": [serialize_store(store) for store in stores],
+        "recent_orders": recent_orders,
+        "service_monitor": {
+            **SERVICE_MONITOR,
+            "remote_ai_configured": bool(REMOTE_AI_API_URL),
+            "remote_ai_model": REMOTE_AI_MODEL,
+            "active_remote_ai_url": ACTIVE_REMOTE_AI_API_URL or REMOTE_AI_API_URL
+        }
+    })
+
+@app.route('/api/admin/users/<int:user_id>', methods=['PUT'])
+def update_admin_user(user_id):
+    admin_user, error_response, status_code = get_authenticated_user(required_roles=['admin'])
+    if error_response:
+        return error_response, status_code
+
+    target_user = next((item for item in users if item.get('id') == user_id), None)
+    if not target_user:
+        return jsonify({"error": "用户不存在。"}), 404
+    if target_user.get('id') == admin_user.get('id') and (request.get_json() or {}).get('account_status') == 'disabled':
+        return jsonify({"error": "不能禁用当前管理员账户。"}), 400
+
+    data = request.get_json() or {}
+    account_status = str(data.get('account_status', target_user.get('account_status', 'active'))).strip() or 'active'
+    risk_status = str(data.get('risk_status', target_user.get('risk_status', 'normal'))).strip() or 'normal'
+    admin_note = str(data.get('admin_note', target_user.get('admin_note', ''))).strip()
+
+    if account_status not in ('active', 'disabled'):
+        return jsonify({"error": "账户状态不合法。"}), 400
+    if risk_status not in ('normal', 'flagged'):
+        return jsonify({"error": "风险状态不合法。"}), 400
+
+    target_user['account_status'] = account_status
+    target_user['risk_status'] = risk_status
+    target_user['admin_note'] = admin_note
+    persist_data()
+    return jsonify({"user": serialize_user(target_user)})
+
+@app.route('/api/admin/stores/<int:store_id>', methods=['PUT'])
+def update_admin_store(store_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['admin'])
+    if error_response:
+        return error_response, status_code
+
+    store = get_store_by_id(store_id)
+    if not store:
+        return jsonify({"error": "店铺不存在。"}), 404
+
+    data = request.get_json() or {}
+    status = str(data.get('status', store.get('status', 'active'))).strip() or 'active'
+    business_status = str(data.get('business_status', store.get('business_status', '营业中'))).strip() or '营业中'
+    announcement = str(data.get('announcement', store.get('announcement', ''))).strip()
+
+    if status not in ('active', 'inactive'):
+        return jsonify({"error": "店铺展示状态不合法。"}), 400
+
+    store['status'] = status
+    store['business_status'] = business_status
+    store['announcement'] = announcement
+    persist_data()
+    return jsonify({"store": serialize_store(store)})
+
+def get_order_item_sales(store_id=None):
+    item_sales = {}
+    scoped_orders = filter_records_by_store(orders, store_id)
+    for order in scoped_orders:
+        if order.get('status') == '已取消':
+            continue
+        for item in order.get('items', []):
+            sales = item_sales.setdefault(item.get('name'), {
+                "name": item.get('name'),
+                "quantity": 0,
+                "revenue": 0.0,
+                "type": item.get('type', 'item')
+            })
+            sales["quantity"] += int(item.get('quantity', 0))
+            sales["revenue"] += float(item.get('subtotal', 0))
+    ranked_sales = sorted(
+        item_sales.values(),
+        key=lambda sale: (sale["quantity"], sale["revenue"]),
+        reverse=True
+    )
+    return ranked_sales
+
+def build_local_order_assistant_reply(preferences, budget=None, people_count=1, menu_source=None, combo_source=None):
+    preferences = (preferences or "").strip()
+    people_count = max(1, int(people_count or 1))
+    normalized_budget = None
+    if budget not in (None, ""):
+        try:
+            normalized_budget = float(budget)
+        except (TypeError, ValueError):
+            normalized_budget = None
+
+    menu_source = menu if menu_source is None else menu_source
+    combo_source = combos if combo_source is None else combo_source
+    ranked_items = sorted(menu_source, key=lambda item: item.get("price", 0))
+    if normalized_budget is not None:
+        ranked_items = [item for item in ranked_items if float(item.get("price", 0)) <= normalized_budget]
+    if preferences:
+        preference_keywords = preferences.lower()
+        ranked_items = sorted(
+            ranked_items,
+            key=lambda item: (
+                preference_keywords in (item.get("name", "").lower() + item.get("description", "").lower()),
+                -float(item.get("price", 0))
+            ),
+            reverse=True
+        )
+
+    recommended_items = ranked_items[:3]
+    ranked_combos = sorted(combo_source, key=lambda combo: combo.get("price", 0) * combo.get("discount", 1))
+    if normalized_budget is not None:
+        ranked_combos = [
+            combo for combo in ranked_combos
+            if float(combo.get("price", 0)) * float(combo.get("discount", 1)) <= normalized_budget
+        ]
+    recommended_combo = ranked_combos[0] if ranked_combos else None
+
+    lines = [
+        f"已根据 {people_count} 人用餐场景生成点餐建议。"
+    ]
+    if preferences:
+        lines.append(f"你的偏好：{preferences}")
+    if normalized_budget is not None:
+        lines.append(f"预算参考：¥{normalized_budget:.2f}")
+
+    if recommended_items:
+        item_text = "；".join([
+            f"{item.get('name')} ¥{float(item.get('price', 0)):.2f}（{item.get('description', '暂无描述')}）"
+            for item in recommended_items
+        ])
+        lines.append(f"推荐单品：{item_text}")
+    else:
+        lines.append("当前预算下没有合适单品，建议放宽预算或选择套餐。")
+
+    if recommended_combo:
+        combo_price = float(recommended_combo.get("price", 0)) * float(recommended_combo.get("discount", 1))
+        lines.append(f"推荐套餐：{recommended_combo.get('name')}，到手约 ¥{combo_price:.2f}。")
+
+    lines.append("如果你告诉我口味、忌口、预算或人数，我可以继续缩小推荐范围。")
+    return "\n".join(lines)
+
+def build_local_analysis_payload(store_id=None):
+    scoped_orders = filter_records_by_store(orders, store_id)
+    scoped_menu = filter_records_by_store(menu, store_id)
+    scoped_combos = filter_records_by_store(combos, store_id)
+    total_orders = len(scoped_orders)
+    completed_orders = [order for order in scoped_orders if order.get('status') == '已完成']
+    pending_orders = [order for order in scoped_orders if order.get('status') == '已接单']
+    cancelled_orders = [order for order in scoped_orders if order.get('status') == '已取消']
+    total_revenue = round(sum(float(order.get('total', 0)) for order in completed_orders), 2)
+    average_order_value = round(total_revenue / len(completed_orders), 2) if completed_orders else 0.0
+    item_sales = get_order_item_sales(store_id=store_id)
+    top_items = item_sales[:5]
+
+    insights = []
+    if top_items:
+        insights.append(f"当前销量最高的是 {top_items[0]['name']}，累计售出 {top_items[0]['quantity']} 份。")
+    insights.append(f"已完成订单 {len(completed_orders)} 单，平均客单价 ¥{average_order_value:.2f}。")
+    if pending_orders:
+        insights.append(f"还有 {len(pending_orders)} 单待处理，建议关注出餐和配送节奏。")
+    if cancelled_orders:
+        insights.append(f"累计取消 {len(cancelled_orders)} 单，可复盘高频取消时段和商品。")
+
+    suggestions = [
+        "优先围绕热销商品设计组合套餐，提高连带购买率。",
+        "对低销量商品做限时活动或重新优化描述、图片和定价。",
+        "高峰时段前提前备货，减少待处理订单积压。"
+    ]
+
+    return {
+        "stats": {
+            "total_orders": total_orders,
+            "completed_orders": len(completed_orders),
+            "pending_orders": len(pending_orders),
+            "cancelled_orders": len(cancelled_orders),
+            "total_revenue": total_revenue,
+            "average_order_value": average_order_value,
+            "menu_count": len(scoped_menu),
+            "combo_count": len(scoped_combos)
+        },
+        "top_items": top_items,
+        "insights": insights,
+        "suggestions": suggestions
+    }
 
 # 地址管理
 @app.route('/api/addresses', methods=['GET'])
 def get_addresses():
-    session_id = request.headers.get('X-Session-ID')
-    
-    if not session_id or session_id not in user_sessions:
-        return jsonify({"error": "未登录。"}), 401
-
-    user_id = user_sessions[session_id]
-    user = next((u for u in users if u['id'] == user_id), None)
-    
-    if not user:
-        return jsonify({"error": "用户不存在。"}), 404
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
 
     return jsonify({"addresses": user['addresses']}), 200
 
 @app.route('/api/addresses', methods=['POST'])
 def add_address():
-    session_id = request.headers.get('X-Session-ID')
-    
-    if not session_id or session_id not in user_sessions:
-        return jsonify({"error": "未登录。"}), 401
-
-    user_id = user_sessions[session_id]
-    user = next((u for u in users if u['id'] == user_id), None)
-    
-    if not user:
-        return jsonify({"error": "用户不存在。"}), 404
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
 
     data = request.get_json() or {}
     name = data.get('name', '').strip()
@@ -838,16 +1981,9 @@ def add_address():
 
 @app.route('/api/addresses/<int:address_id>', methods=['PUT'])
 def update_address(address_id):
-    session_id = request.headers.get('X-Session-ID')
-    
-    if not session_id or session_id not in user_sessions:
-        return jsonify({"error": "未登录。"}), 401
-
-    user_id = user_sessions[session_id]
-    user = next((u for u in users if u['id'] == user_id), None)
-    
-    if not user:
-        return jsonify({"error": "用户不存在。"}), 404
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
 
     address = next((a for a in user['addresses'] if a['id'] == address_id), None)
     if not address:
@@ -881,16 +2017,9 @@ def update_address(address_id):
 
 @app.route('/api/addresses/<int:address_id>', methods=['DELETE'])
 def delete_address(address_id):
-    session_id = request.headers.get('X-Session-ID')
-    
-    if not session_id or session_id not in user_sessions:
-        return jsonify({"error": "未登录。"}), 401
-
-    user_id = user_sessions[session_id]
-    user = next((u for u in users if u['id'] == user_id), None)
-    
-    if not user:
-        return jsonify({"error": "用户不存在。"}), 404
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
 
     address = next((a for a in user['addresses'] if a['id'] == address_id), None)
     if not address:
@@ -900,6 +2029,101 @@ def delete_address(address_id):
     persist_data()
 
     return jsonify({"success": True}), 200
+
+@app.route('/api/smart-order-assistant', methods=['POST'])
+def smart_order_assistant():
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+
+    data = request.get_json() or {}
+    store_id = data.get('store_id')
+    preferences = (data.get('preferences') or '').strip()
+    budget = data.get('budget')
+    people_count = data.get('people_count', 1)
+    if not store_id:
+        return jsonify({"error": "请选择店铺后再使用点餐助手。"}), 400
+    store_id = int(store_id)
+    scoped_menu = filter_records_by_store(menu, store_id)
+    scoped_combos = filter_records_by_store(combos, store_id)
+
+    menu_preview = "；".join([
+        f"{item.get('name')} ¥{float(item.get('price', 0)):.2f} {item.get('description', '')}"
+        for item in scoped_menu[:10]
+    ])
+    combo_preview = "；".join([
+        f"{combo.get('name')} ¥{float(combo.get('price', 0)) * float(combo.get('discount', 1)):.2f}"
+        for combo in scoped_combos[:6]
+    ])
+
+    prompt = (
+        "你是智能外卖平台的点餐助手。"
+        "请根据用户人数、预算和口味偏好，推荐 2-3 个单品和 1 个可选套餐，"
+        "并说明推荐原因，回复要简洁、直接、可执行。\n"
+        f"当前菜单：{menu_preview or '暂无菜单数据'}\n"
+        f"当前套餐：{combo_preview or '暂无套餐数据'}\n"
+        f"用户：{user.get('username')}\n"
+        f"人数：{people_count}\n"
+        f"预算：{budget if budget not in (None, '') else '未提供'}\n"
+        f"偏好：{preferences or '未提供'}"
+    )
+
+    ai_response, err = call_remote_ai_api(prompt)
+    if ai_response:
+        mark_service_metric('smart_order', success=True)
+        return jsonify({
+            "recommendation": ai_response,
+            "source": "remote_api"
+        }), 200
+
+    mark_service_metric('smart_order', success=False)
+    return jsonify({
+        "recommendation": build_local_order_assistant_reply(
+            preferences,
+            budget=budget,
+            people_count=people_count,
+            menu_source=scoped_menu,
+            combo_source=scoped_combos
+        ),
+        "source": "local_fallback",
+        "warning": err or "远程AI不可用，已回退本地点餐建议。"
+    }), 200
+
+@app.route('/api/data-analysis', methods=['GET'])
+def get_data_analysis():
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+
+    store_id = get_store_id_for_request(user, allow_all_for_admin=True)
+    analysis_payload = build_local_analysis_payload(store_id=store_id)
+    top_items_text = "；".join([
+        f"{item['name']} 销量{item['quantity']} 营收¥{item['revenue']:.2f}"
+        for item in analysis_payload["top_items"][:5]
+    ]) or "暂无销量数据"
+
+    prompt = (
+        "你是餐饮经营分析助手。请基于以下经营数据输出 3 条核心洞察和 3 条经营建议，"
+        "语言简洁，适合商家直接查看。\n"
+        f"总订单：{analysis_payload['stats']['total_orders']}\n"
+        f"已完成订单：{analysis_payload['stats']['completed_orders']}\n"
+        f"待处理订单：{analysis_payload['stats']['pending_orders']}\n"
+        f"已取消订单：{analysis_payload['stats']['cancelled_orders']}\n"
+        f"总营收：¥{analysis_payload['stats']['total_revenue']:.2f}\n"
+        f"平均客单价：¥{analysis_payload['stats']['average_order_value']:.2f}\n"
+        f"热销商品：{top_items_text}"
+    )
+
+    ai_response, err = call_remote_ai_api(prompt)
+    mark_service_metric('data_analysis', success=bool(ai_response))
+    analysis_payload["ai_summary"] = ai_response or "\n".join(
+        [f"洞察：{line}" for line in analysis_payload["insights"]] +
+        [f"建议：{line}" for line in analysis_payload["suggestions"]]
+    )
+    analysis_payload["source"] = "remote_api" if ai_response else "local_fallback"
+    if err and not ai_response:
+        analysis_payload["warning"] = err
+    return jsonify(analysis_payload), 200
 
 # AI 客服对话（代理远程模型 HTTP API）
 def build_ai_payload(message, image_url=None, history=None, include_model=True):
@@ -1222,6 +2446,9 @@ def generate_mock_response(message):
 @app.route('/api/ai-agent', methods=['POST'])
 @app.route('/api/chat', methods=['POST'])  # 兼容旧前端
 def ai_agent():
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
     data = request.get_json() or {}
     message = data.get('message', '').strip()
     image_url = data.get('image_url')
@@ -1254,6 +2481,7 @@ def ai_agent():
 
     response_text, err = call_remote_ai_api(message, image_url=image_url, history=effective_history)
     if response_text:
+        mark_service_metric('ai_chat', success=True)
         final_response = response_text
 
         # 自动续写：当回答疑似被截断时，补 1~N 轮续写
@@ -1291,6 +2519,7 @@ def ai_agent():
         }), 200
 
     # 失败时回退到模拟回复，保证页面可用
+    mark_service_metric('ai_chat', success=False)
     print(f"AI代理回退到模拟回复: {err}")
     fallback = generate_mock_response(message)
     stored_history.append({"role": "user", "content": message})

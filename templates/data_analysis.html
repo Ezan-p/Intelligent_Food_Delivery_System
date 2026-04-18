@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>数据智能分析 - 智能外卖管理平台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <header>
+        <h1>数据智能分析</h1>
+        <p>汇总订单、收入与热销商品表现，为商家提供经营洞察。</p>
+        <nav class="page-nav">
+            <a class="nav-link" href="{{ customer_url }}">客户端</a>
+            <a class="nav-link" href="{{ merchant_url }}">商家端</a>
+            <a class="nav-link" href="{{ admin_url }}">后台管理端</a>
+            <a class="nav-link active" href="{{ merchant_analysis_url }}">数据智能分析</a>
+        </nav>
+    </header>
+
+    <main>
+        <section>
+            <div class="section-header-row">
+                <div>
+                    <h2>经营分析结果</h2>
+                    <p class="analysis-summary">点击按钮刷新最新分析结果。</p>
+                </div>
+                <button id="refreshAnalysis" class="primary">刷新分析</button>
+            </div>
+            <div id="analysisStats" class="stats-grid"></div>
+        </section>
+
+        <section>
+            <div class="analysis-layout">
+                <div class="analysis-panel">
+                    <h3>热销商品</h3>
+                    <div id="topItems"></div>
+                </div>
+                <div class="analysis-panel">
+                    <h3>AI经营总结</h3>
+                    <div id="analysisSource" class="analysis-summary">等待分析中...</div>
+                    <div id="analysisSummary" class="analysis-text-block"></div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <div class="analysis-layout">
+                <div class="analysis-panel">
+                    <h3>核心洞察</h3>
+                    <div id="analysisInsights"></div>
+                </div>
+                <div class="analysis-panel">
+                    <h3>运营建议</h3>
+                    <div id="analysisSuggestions"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/data_analysis.js"></script>
+</body>
+</html>
