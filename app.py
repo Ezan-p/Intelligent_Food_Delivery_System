@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import re
+import base64
 from urllib.parse import urlparse
 from flask import Flask, jsonify, request, render_template, redirect, make_response
 from datetime import datetime
@@ -30,20 +31,15 @@ if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
 # 远程 AI API 配置
-DEFAULT_REMOTE_AI_BASE_URL = "https://web-2042154320335900674-iada.ksai.scnet.cn:58043/"
+DEFAULT_REMOTE_AI_BASE_URL = "http://127.0.0.1:7860"
 DEFAULT_REMOTE_AI_MODEL = ""
 
 def normalize_remote_ai_api_url(url):
-    """支持填写基地址，自动补成 OpenAI 兼容聊天接口路径"""
+    """统一保留服务基地址，不在这里拼接具体 API 路径。"""
     normalized = (url or "").strip()
     if not normalized:
         return ""
-
-    parsed = urlparse(normalized)
-    path = (parsed.path or "").strip()
-    if not path or path == "/":
-        return normalized.rstrip("/") + "/v1/chat/completions"
-    return normalized
+    return normalized.rstrip("/")
 
 REMOTE_AI_API_URL = normalize_remote_ai_api_url(
     os.environ.get('REMOTE_AI_API_URL', DEFAULT_REMOTE_AI_BASE_URL)
@@ -2500,7 +2496,7 @@ def smart_order_assistant():
         f"偏好：{preferences or '未提供'}"
     )
 
-    ai_response, err = call_remote_ai_api(prompt)
+    ai_response, err = call_remote_ai_api(prompt, session_id=request.headers.get('X-Session-ID'))
     if ai_response:
         mark_service_metric('smart_order', success=True)
         return jsonify({
@@ -2547,7 +2543,7 @@ def get_data_analysis():
         f"热销商品：{top_items_text}"
     )
 
-    ai_response, err = call_remote_ai_api(prompt)
+    ai_response, err = call_remote_ai_api(prompt, session_id=request.headers.get('X-Session-ID'))
     mark_service_metric('data_analysis', success=bool(ai_response))
     analysis_payload["ai_summary"] = ai_response or "\n".join(
         [f"洞察：{line}" for line in analysis_payload["insights"]] +
@@ -2705,153 +2701,128 @@ def extract_ai_text(response_json):
 
     return None
 
-def call_remote_ai_api(message, image_url=None, history=None):
+
+def build_remote_ai_endpoint(path):
+    base_url = (ACTIVE_REMOTE_AI_API_URL or REMOTE_AI_API_URL or "").rstrip("/")
+    return f"{base_url}{path}"
+
+
+def build_remote_ai_prompt(message, history=None):
+    prompt_sections = [REMOTE_AI_SYSTEM_PROMPT]
+
+    if isinstance(history, list):
+        dialogue_lines = []
+        for item in history[-AI_CONTEXT_MAX_MESSAGES:]:
+            if not isinstance(item, dict):
+                continue
+            role = (item.get("role") or "").strip().lower()
+            content = item.get("content")
+            if isinstance(content, list):
+                text_parts = []
+                for part in content:
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        text_parts.append(part["text"].strip())
+                content = "\n".join(part for part in text_parts if part)
+            if not isinstance(content, str) or not content.strip():
+                continue
+            role_name = {
+                "system": "系统",
+                "user": "用户",
+                "assistant": "助手"
+            }.get(role, "消息")
+            dialogue_lines.append(f"{role_name}：{content.strip()}")
+        if dialogue_lines:
+            prompt_sections.append("以下是对话上下文：\n" + "\n".join(dialogue_lines))
+
+    prompt_sections.append(f"当前用户问题：{message.strip()}")
+    prompt_sections.append("请直接给出最终回答，不要输出思考过程。")
+    return "\n\n".join(section for section in prompt_sections if section).strip()
+
+
+def decode_image_data_url(image_url):
+    if not isinstance(image_url, str) or not image_url.strip():
+        return None
+
+    image_url = image_url.strip()
+    if not image_url.startswith("data:"):
+        return None
+
+    match = re.match(r"^data:(image/[\w.+-]+);base64,(.*)$", image_url, flags=re.DOTALL)
+    if not match:
+        return None
+
+    mime_type = match.group(1)
+    encoded = match.group(2)
+    try:
+        binary = base64.b64decode(encoded)
+    except (ValueError, TypeError):
+        return None
+
+    extension = mime_type.split("/", 1)[-1].replace("+xml", "")
+    extension = "jpg" if extension == "jpeg" else extension
+    filename = f"upload.{extension or 'png'}"
+    return filename, mime_type, binary
+
+
+def build_remote_ai_headers(include_json=True):
+    headers = {}
+    if include_json:
+        headers["Content-Type"] = "application/json"
+    if REMOTE_AI_API_KEY:
+        headers["X-API-Key"] = REMOTE_AI_API_KEY
+    return headers
+
+
+def call_remote_ai_api(message, image_url=None, history=None, session_id=None):
     global ACTIVE_REMOTE_AI_API_URL, USE_MODEL_FIELD
 
     if not REMOTE_AI_API_URL:
         return None, "REMOTE_AI_API_URL 未配置。"
 
-    headers = {"Content-Type": "application/json"}
-    if REMOTE_AI_API_KEY:
-        headers["Authorization"] = f"Bearer {REMOTE_AI_API_KEY}"
-
-    payload = build_ai_payload(message, image_url=image_url, history=history, include_model=USE_MODEL_FIELD)
-    payload_without_model = build_ai_payload(message, image_url=image_url, history=history, include_model=False)
-    prompt_payload_variants = build_prompt_payload_variants(
-        message,
-        image_url=image_url,
-        history=history,
-        include_model=USE_MODEL_FIELD
-    )
-    prompt_payload_variants_without_model = build_prompt_payload_variants(
-        message,
-        image_url=image_url,
-        history=history,
-        include_model=False
-    )
-
-    candidate_urls = build_remote_ai_candidate_urls(ACTIVE_REMOTE_AI_API_URL or REMOTE_AI_API_URL)
-    last_error = "远程AI服务调用失败。"
-
     try:
-        for api_url in candidate_urls:
+        prompt = build_remote_ai_prompt(message, history=history)
+        request_kwargs = {
+            "timeout": (REMOTE_AI_CONNECT_TIMEOUT, REMOTE_AI_TIMEOUT)
+        }
+
+        if image_url:
+            image_payload = decode_image_data_url(image_url)
+            if not image_payload:
+                return None, "当前图片格式无法识别，请重新上传后再试。"
+            filename, mime_type, binary = image_payload
+            form_data = {"prompt": prompt}
+            if session_id:
+                form_data["session_id"] = session_id
             resp = requests.post(
-                api_url,
-                headers=headers,
+                build_remote_ai_endpoint("/api/v1/chat"),
+                headers=build_remote_ai_headers(include_json=False),
+                data=form_data,
+                files={"image": (filename, binary, mime_type)},
+                **request_kwargs
+            )
+        else:
+            payload = {"prompt": prompt}
+            if session_id:
+                payload["session_id"] = session_id
+            resp = requests.post(
+                build_remote_ai_endpoint("/api/v1/chat/text-only"),
+                headers=build_remote_ai_headers(include_json=True),
                 json=payload,
-                timeout=(REMOTE_AI_CONNECT_TIMEOUT, REMOTE_AI_TIMEOUT)
+                **request_kwargs
             )
 
-            if resp.status_code == 404:
-                last_error = f"远程AI服务调用失败，状态码 404，路径不存在: {api_url}"
-                continue
+        if not resp.ok:
+            text_preview = (resp.text or "").strip().replace("\n", " ")
+            text_preview = text_preview[:220] if text_preview else ""
+            if text_preview:
+                return None, f"远程AI服务调用失败，状态码 {resp.status_code}，响应: {text_preview}"
+            return None, f"远程AI服务调用失败，状态码 {resp.status_code}"
 
-            if not resp.ok:
-                raw_error_text = (resp.text or "")
-                # 部分单模型服务不接受 model 字段，自动去掉 model 重试
-                if resp.status_code in (400, 404) and is_model_not_found_error(raw_error_text):
-                    no_model_resp = requests.post(
-                        api_url,
-                        headers=headers,
-                        json=payload_without_model,
-                        timeout=(REMOTE_AI_CONNECT_TIMEOUT, REMOTE_AI_TIMEOUT)
-                    )
-                    if no_model_resp.ok:
-                        no_model_body = no_model_resp.json()
-                        no_model_text = extract_ai_text(no_model_body)
-                        if no_model_text:
-                            if USE_MODEL_FIELD:
-                                USE_MODEL_FIELD = False
-                                print("AI代理检测到模型名不可用，后续请求将不再携带 model 字段。")
-                            if ACTIVE_REMOTE_AI_API_URL != api_url:
-                                ACTIVE_REMOTE_AI_API_URL = api_url
-                                print(f"AI代理已命中可用接口(不带model字段): {ACTIVE_REMOTE_AI_API_URL}")
-                            return no_model_text, None
-                        return None, "远程AI(不带model字段)返回格式无法识别。"
-
-                # 部分服务只接受 prompt 字段，自动降级重试
-                if resp.status_code == 400:
-                    try:
-                        err_json = resp.json()
-                    except ValueError:
-                        err_json = None
-
-                    err_text = json.dumps(err_json, ensure_ascii=False) if isinstance(err_json, dict) else (resp.text or "")
-                    if "prompt" in err_text and ("Field required" in err_text or "missing" in err_text):
-                        prompt_last_error = ""
-                        for idx, prompt_payload in enumerate(prompt_payload_variants, start=1):
-                            prompt_resp = requests.post(
-                                api_url,
-                                headers=headers,
-                                json=prompt_payload,
-                                timeout=(REMOTE_AI_CONNECT_TIMEOUT, REMOTE_AI_TIMEOUT)
-                            )
-                            if prompt_resp.ok:
-                                prompt_body = prompt_resp.json()
-                                prompt_text = extract_ai_text(prompt_body)
-                                if prompt_text:
-                                    if ACTIVE_REMOTE_AI_API_URL != api_url:
-                                        ACTIVE_REMOTE_AI_API_URL = api_url
-                                        print(f"AI代理已命中可用接口(prompt协议): {ACTIVE_REMOTE_AI_API_URL}")
-                                    return prompt_text, None
-                                return None, "远程AI(prompt协议)返回格式无法识别。"
-
-                            prompt_preview = (prompt_resp.text or "").strip().replace("\n", " ")
-                            prompt_preview = prompt_preview[:220] if prompt_preview else ""
-                            prompt_last_error = (
-                                f"prompt协议重试失败(变体{idx})，状态码 {prompt_resp.status_code}"
-                                + (f"，响应: {prompt_preview}" if prompt_preview else "")
-                            )
-
-                            # prompt 协议也可能不接受 model 字段
-                            if prompt_resp.status_code in (400, 404) and is_model_not_found_error(prompt_resp.text or ""):
-                                for jdx, prompt_payload_no_model in enumerate(prompt_payload_variants_without_model, start=1):
-                                    prompt_no_model_resp = requests.post(
-                                        api_url,
-                                        headers=headers,
-                                        json=prompt_payload_no_model,
-                                        timeout=(REMOTE_AI_CONNECT_TIMEOUT, REMOTE_AI_TIMEOUT)
-                                    )
-                                    if prompt_no_model_resp.ok:
-                                        prompt_no_model_body = prompt_no_model_resp.json()
-                                        prompt_no_model_text = extract_ai_text(prompt_no_model_body)
-                                        if prompt_no_model_text:
-                                            if USE_MODEL_FIELD:
-                                                USE_MODEL_FIELD = False
-                                                print("AI代理检测到模型名不可用，后续请求将不再携带 model 字段。")
-                                            if ACTIVE_REMOTE_AI_API_URL != api_url:
-                                                ACTIVE_REMOTE_AI_API_URL = api_url
-                                                print(f"AI代理已命中可用接口(prompt+不带model): {ACTIVE_REMOTE_AI_API_URL}")
-                                            return prompt_no_model_text, None
-                                        return None, "远程AI(prompt+不带model)返回格式无法识别。"
-
-                                    prompt_no_model_preview = (prompt_no_model_resp.text or "").strip().replace("\n", " ")
-                                    prompt_no_model_preview = prompt_no_model_preview[:220] if prompt_no_model_preview else ""
-                                    prompt_last_error = (
-                                        f"prompt协议(不带model)重试失败(变体{jdx})，状态码 {prompt_no_model_resp.status_code}"
-                                        + (f"，响应: {prompt_no_model_preview}" if prompt_no_model_preview else "")
-                                    )
-
-                        if prompt_last_error:
-                            return None, prompt_last_error
-
-                text_preview = (resp.text or "").strip().replace("\n", " ")
-                text_preview = text_preview[:180] if text_preview else ""
-                if text_preview:
-                    return None, f"远程AI服务调用失败，状态码 {resp.status_code}，响应: {text_preview}"
-                return None, f"远程AI服务调用失败，状态码 {resp.status_code}"
-
-            body = resp.json()
-            text = extract_ai_text(body)
-            if not text:
-                return None, "远程AI返回格式无法识别，请检查模型服务响应格式。"
-
-            if ACTIVE_REMOTE_AI_API_URL != api_url:
-                ACTIVE_REMOTE_AI_API_URL = api_url
-                print(f"AI代理已命中可用接口: {ACTIVE_REMOTE_AI_API_URL}")
-            return text, None
-
-        return None, last_error
+        body = resp.json()
+        text = extract_ai_text(body)
+        if not text:
+            return None, "远程AI返回格式无法识别，请检查 /api/v1/chat 或 /api/v1/chat/text-only 的响应结构。"
+        return text, None
     except requests.Timeout:
         return None, f"远程AI服务超时（读取超时 {REMOTE_AI_TIMEOUT:.0f}s），请稍后重试。"
     except requests.RequestException as e:
@@ -2912,7 +2883,12 @@ def ai_agent():
     else:
         effective_history.extend(trim_conversation_history(stored_history))
 
-    response_text, err = call_remote_ai_api(message, image_url=image_url, history=effective_history)
+    response_text, err = call_remote_ai_api(
+        message,
+        image_url=image_url,
+        history=effective_history,
+        session_id=session_id or conversation_id
+    )
     if response_text:
         mark_service_metric('ai_chat', success=True)
         final_response = response_text
@@ -2930,7 +2906,8 @@ def ai_agent():
                 next_chunk, next_err = call_remote_ai_api(
                     continuation_prompt,
                     image_url=None,
-                    history=continuation_history
+                    history=continuation_history,
+                    session_id=session_id or conversation_id
                 )
                 if not next_chunk:
                     if next_err:

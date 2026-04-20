@@ -85,9 +85,9 @@ python3 run_portals.py
 项目通过 Flask 后端代理远程模型 API。请在启动前配置以下环境变量：
 
 ```bash
-export REMOTE_AI_API_URL="https://public-2042136076861014018-iaaa.ksai.scnet.cn:58043/"
-export REMOTE_AI_MODEL="Qwen3-30B-A3B"
-export REMOTE_AI_API_KEY="your_api_key" # 可选
+export REMOTE_AI_API_URL="http://127.0.0.1:7860"
+export REMOTE_AI_MODEL=""
+export REMOTE_AI_API_KEY="sk-test-key-12345"
 export REMOTE_AI_TIMEOUT="30"           # 可选，默认30秒
 ```
 
@@ -97,7 +97,10 @@ python3 run_portals.py
 ```
 
 说明：
-- 若 `REMOTE_AI_API_URL` 只填了基地址（如上面示例），后端会自动补全为 `/v1/chat/completions`。
+- 当前项目按服务基地址接入，后端会调用：
+  - 纯文本接口：`POST /api/v1/chat/text-only`
+  - 图片接口：`POST /api/v1/chat`
+  - 认证头：`X-API-Key`
 - 若远程 AI 服务不可用，后端会自动回退模拟回复，保证聊天页可用。
 - `/api/chat` 保留兼容，建议新调用统一使用 `/api/ai-agent`。
 
