@@ -1420,9 +1420,124 @@ button.secondary {
     transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
+.app-toast.toast-success {
+    background: rgba(22, 101, 52, 0.94);
+}
+
+.app-toast.toast-error {
+    background: rgba(153, 27, 27, 0.94);
+}
+
+.app-toast.toast-info {
+    background: rgba(15, 23, 42, 0.92);
+}
+
 .app-toast.visible {
     opacity: 1;
     transform: translateY(0);
+}
+
+.feedback-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    min-height: 132px;
+    padding: 24px;
+    border: 1px dashed #d9e2ec;
+    border-radius: 16px;
+    background: linear-gradient(180deg, #fffdfb 0%, #f8fafc 100%);
+    color: #475569;
+    text-align: center;
+    flex-direction: column;
+}
+
+.feedback-state strong {
+    color: #0f172a;
+    font-size: 16px;
+}
+
+.feedback-state p {
+    max-width: 420px;
+    color: #64748b;
+}
+
+.feedback-state.compact {
+    min-height: auto;
+    padding: 18px 14px;
+    border-radius: 12px;
+}
+
+.feedback-state.empty::before,
+.feedback-state.error::before {
+    display: inline-flex;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.feedback-state.empty::before {
+    content: "·";
+    background: #fff4df;
+    color: #c26a1b;
+}
+
+.feedback-state.error {
+    border-color: #fecaca;
+    background: linear-gradient(180deg, #fff7f7 0%, #fff1f2 100%);
+}
+
+.feedback-state.error::before {
+    content: "!";
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.feedback-state.loading {
+    border-style: solid;
+}
+
+.feedback-spinner {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid #fed7aa;
+    border-top-color: #f97316;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.table-feedback-row td {
+    padding: 28px 20px;
+    background: #fff;
+}
+
+.confirm-dialog-card {
+    width: min(100%, 460px);
+}
+
+.confirm-dialog-body {
+    color: #475569;
+    line-height: 1.7;
+}
+
+.confirm-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 20px;
 }
 
 @media (max-width: 960px) {

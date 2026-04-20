@@ -358,6 +358,52 @@
       "total": 64.0,
       "status": "已取消",
       "created_at": "2026-04-18 16:06:07"
+    },
+    {
+      "id": 4,
+      "customer": "Ezan",
+      "store_id": 2,
+      "store_name": "Ezan_merchant店铺",
+      "items": [
+        {
+          "id": 7,
+          "name": "鸡胸肉凯撒沙拉",
+          "price": 26.0,
+          "quantity": 1,
+          "subtotal": 26.0,
+          "type": "item"
+        }
+      ],
+      "total": 26.0,
+      "status": "已取消",
+      "created_at": "2026-04-18 17:21:18"
+    },
+    {
+      "id": 5,
+      "customer": "Ezan",
+      "store_id": 2,
+      "store_name": "Ezan_merchant店铺",
+      "items": [
+        {
+          "id": 7,
+          "name": "鸡胸肉凯撒沙拉",
+          "price": 26.0,
+          "quantity": 1,
+          "subtotal": 26.0,
+          "type": "item"
+        },
+        {
+          "id": 8,
+          "name": "牛油果鸡肉三明治",
+          "price": 24.0,
+          "quantity": 1,
+          "subtotal": 24.0,
+          "type": "item"
+        }
+      ],
+      "total": 50.0,
+      "status": "已取消",
+      "created_at": "2026-04-18 17:21:58"
     }
   ],
   "reviews": [],
@@ -378,15 +424,15 @@
       "recent_views": [
         {
           "type": "store",
-          "store_id": 1,
+          "store_id": 2,
           "item_id": null,
-          "viewed_at": "2026-04-18 16:10:34"
+          "viewed_at": "2026-04-18 17:21:12"
         },
         {
           "type": "store",
-          "store_id": 2,
+          "store_id": 1,
           "item_id": null,
-          "viewed_at": "2026-04-18 15:58:37"
+          "viewed_at": "2026-04-18 16:10:34"
         },
         {
           "type": "item",
@@ -531,7 +577,7 @@
     }
   ],
   "counters": {
-    "next_order_id": 4,
+    "next_order_id": 6,
     "next_menu_id": 13,
     "next_category_id": 11,
     "next_combo_id": 4,

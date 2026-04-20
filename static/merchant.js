@@ -72,6 +72,13 @@ const merchantEditorSubtitle = document.getElementById('merchantEditorSubtitle')
 const categoryEditorForm = document.getElementById('categoryEditorForm');
 const productEditorForm = document.getElementById('productEditorForm');
 const comboEditorForm = document.getElementById('comboEditorForm');
+const merchantConfirmModal = document.getElementById('merchantConfirmModal');
+const merchantConfirmTitle = document.getElementById('merchantConfirmTitle');
+const merchantConfirmMessage = document.getElementById('merchantConfirmMessage');
+const merchantConfirmSubmit = document.getElementById('merchantConfirmSubmit');
+const merchantConfirmCancel = document.getElementById('merchantConfirmCancel');
+const merchantConfirmClose = document.getElementById('merchantConfirmClose');
+const merchantToast = document.getElementById('merchantToast');
 
 const STORAGE_PREFIX = 'merchant';
 let menuData = [];
@@ -89,6 +96,8 @@ let draftStoreAvatar = null;
 let draftStoreCover = null;
 let currentOrderStatusFilter = 'all';
 let currentOrderDetailId = null;
+let toastTimer = null;
+let confirmResolver = null;
 
 function authHeaders() {
     return sessionId ? { 'X-Session-ID': sessionId } : {};
@@ -105,6 +114,61 @@ function getStatusLabel(status) {
         '已接单': '待接单'
     };
     return labels[status] || status;
+}
+
+function showToast(message, type = 'info') {
+    if (!merchantToast) return;
+    merchantToast.textContent = message;
+    merchantToast.className = `app-toast toast-${type}`;
+    merchantToast.classList.add('visible');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => {
+        merchantToast.classList.remove('visible');
+    }, 2200);
+}
+
+function buildFeedbackState(type, title, message) {
+    const spinner = type === 'loading' ? '<span class="feedback-spinner" aria-hidden="true"></span>' : '';
+    return `
+        <div class="feedback-state ${type} compact">
+            ${spinner}
+            <strong>${title}</strong>
+            <p>${message}</p>
+        </div>`;
+}
+
+function setTableState(tbody, colspan, type, title, message) {
+    tbody.innerHTML = `
+        <tr class="table-feedback-row">
+            <td colspan="${colspan}">
+                ${buildFeedbackState(type, title, message)}
+            </td>
+        </tr>`;
+}
+
+function setPanelState(container, type, title, message) {
+    container.innerHTML = buildFeedbackState(type, title, message);
+}
+
+function closeConfirmModal(result = false) {
+    if (merchantConfirmModal) {
+        merchantConfirmModal.style.display = 'none';
+    }
+    if (confirmResolver) {
+        confirmResolver(result);
+        confirmResolver = null;
+    }
+}
+
+function confirmAction(title, message, confirmText = '确认删除') {
+    if (!merchantConfirmModal) return Promise.resolve(window.confirm(message));
+    merchantConfirmTitle.textContent = title;
+    merchantConfirmMessage.textContent = message;
+    merchantConfirmSubmit.textContent = confirmText;
+    merchantConfirmModal.style.display = 'flex';
+    return new Promise(resolve => {
+        confirmResolver = resolve;
+    });
 }
 
 function showPage(pageName) {
@@ -124,7 +188,7 @@ function bindSidebarNavigation() {
 
 function requireMerchantSession() {
     if (!sessionId) {
-        alert('请先登录商家账户。');
+        showToast('请先登录商家账户。', 'error');
         window.location.href = '/login';
         return false;
     }
@@ -268,15 +332,23 @@ function syncDraftStorePreview() {
 
 function loadStore() {
     if (!requireMerchantSession()) return Promise.resolve();
+    setPanelState(storePreviewCard, 'loading', '店铺信息加载中', '正在读取店铺首页卡片数据。');
     return fetch('/api/stores', { headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                storePreviewCard.innerHTML = `<p>${data.error}</p>`;
+                setPanelState(storePreviewCard, 'error', '店铺信息加载失败', data.error);
                 return;
             }
             currentStore = (data.stores || [])[0] || null;
+            if (!currentStore) {
+                setPanelState(storePreviewCard, 'empty', '暂无店铺', '当前账号还没有可管理的店铺信息。');
+                return;
+            }
             fillStoreForm();
+        })
+        .catch(error => {
+            setPanelState(storePreviewCard, 'error', '店铺信息加载失败', error.message || '请稍后重试。');
         });
 }
 
@@ -307,14 +379,17 @@ async function saveStore() {
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             currentStore = data.store;
             draftStoreAvatar = currentStore.avatar_url;
             draftStoreCover = currentStore.cover_image_url;
             fillStoreForm();
-            alert('店铺信息已更新。');
+            showToast('店铺信息已更新。', 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '店铺信息保存失败。', 'error');
         });
 }
 
@@ -325,8 +400,12 @@ function checkLoginStatus() {
     renderAuthState();
 
     if (!sessionId) {
-        dashboardStats.innerHTML = '<p>登录商家账户后可管理店铺、商品、套餐和订单。</p>';
-        storePreviewCard.innerHTML = '<p>登录后可编辑店铺卡片信息。</p>';
+        setPanelState(dashboardStats, 'empty', '请先登录', '登录商家账户后可管理店铺、商品、套餐和订单。');
+        setPanelState(storePreviewCard, 'empty', '请先登录', '登录后可编辑店铺卡片信息。');
+        setTableState(categoryList, 5, 'empty', '请先登录', '登录后可查看分类数据。');
+        setTableState(productList, 6, 'empty', '请先登录', '登录后可查看商品数据。');
+        setTableState(comboList, 6, 'empty', '请先登录', '登录后可查看套餐数据。');
+        setTableState(merchantOrderList, 6, 'empty', '请先登录', '登录后可查看订单数据。');
         return;
     }
 
@@ -368,11 +447,12 @@ function logout(redirect = true) {
 
 function loadDashboard() {
     if (!requireMerchantSession()) return;
+    setPanelState(dashboardStats, 'loading', '经营数据加载中', '正在汇总订单和收入。');
     fetch('/api/dashboard', { headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                dashboardStats.innerHTML = `<p>${data.error}</p>`;
+                setPanelState(dashboardStats, 'error', '经营数据加载失败', data.error);
                 return;
             }
             dashboardStats.innerHTML = `
@@ -385,6 +465,9 @@ function loadDashboard() {
                 <div class="stat-card"><h3>今日收入</h3><div class="stat-value">¥${formatPrice(data.today_revenue)}</div></div>
                 <div class="stat-card"><h3>商品数量</h3><div class="stat-value">${data.menu_count}</div></div>
                 <div class="stat-card"><h3>套餐数量</h3><div class="stat-value">${data.combo_count}</div></div>`;
+        })
+        .catch(error => {
+            setPanelState(dashboardStats, 'error', '经营数据加载失败', error.message || '请稍后重试。');
         });
 }
 
@@ -393,13 +476,21 @@ function updateProductCategoryFilter() {
 }
 
 function loadCategories() {
+    setTableState(categoryList, 5, 'loading', '分类加载中', '正在读取分类列表。');
     fetch('/api/categories', { headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
+            if (data.error) {
+                setTableState(categoryList, 5, 'error', '分类加载失败', data.error);
+                return;
+            }
             categoryData = data.categories || [];
             renderCategories();
             updateCategorySelect();
             updateProductCategoryFilter();
+        })
+        .catch(error => {
+            setTableState(categoryList, 5, 'error', '分类加载失败', error.message || '请稍后重试。');
         });
 }
 
@@ -429,7 +520,10 @@ function renderCategories() {
                     </div>
                 </td>
             </tr>`;
-    }).join('') : '<tr><td colspan="5">当前没有符合条件的分类。</td></tr>';
+    }).join('') : `
+        <tr class="table-feedback-row">
+            <td colspan="5">${buildFeedbackState('empty', '暂无分类', '当前没有符合条件的分类。')}</td>
+        </tr>`;
 }
 
 function updateCategorySelect() {
@@ -461,12 +555,13 @@ function saveCategoryHandler() {
     if (!requireMerchantSession()) return;
     const name = categoryName.value.trim();
     if (!name) {
-        alert('请输入分类名称。');
+        showToast('请输入分类名称。', 'error');
         return;
     }
 
     const url = editingCategoryId ? `/api/categories/${editingCategoryId}` : '/api/categories';
     const method = editingCategoryId ? 'PUT' : 'POST';
+    const isEditing = Boolean(editingCategoryId);
 
     fetch(url, {
         method,
@@ -476,12 +571,16 @@ function saveCategoryHandler() {
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             resetCategoryForm();
             closeEditorModal();
             loadCategories();
+            showToast(isEditing ? '分类已更新。' : '分类已新增。', 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '分类保存失败。', 'error');
         });
 }
 
@@ -496,34 +595,51 @@ function toggleCategoryStatus(id) {
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             loadCategories();
+            showToast('分类状态已更新。', 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '分类状态更新失败。', 'error');
         });
 }
 
-function deleteCategory(id) {
+async function deleteCategory(id) {
     if (!requireMerchantSession()) return;
-    if (!confirm('确定要删除该分类吗？')) return;
+    const confirmed = await confirmAction('删除分类', '确定要删除该分类吗？删除后无法恢复。');
+    if (!confirmed) return;
     fetch(`/api/categories/${id}`, { method: 'DELETE', headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             loadCategories();
+            showToast('分类已删除。', 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '分类删除失败。', 'error');
         });
 }
 
 function loadMenu() {
+    setTableState(productList, 6, 'loading', '商品加载中', '正在读取商品列表。');
     fetch('/api/menu', { headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
+            if (data.error) {
+                setTableState(productList, 6, 'error', '商品加载失败', data.error);
+                return;
+            }
             menuData = data.menu || [];
             renderProducts();
             updateComboItemsSelect();
+        })
+        .catch(error => {
+            setTableState(productList, 6, 'error', '商品加载失败', error.message || '请稍后重试。');
         });
 }
 
@@ -566,7 +682,10 @@ function renderProducts() {
                     </div>
                 </td>
             </tr>`;
-    }).join('') : '<tr><td colspan="6">当前没有符合条件的商品。</td></tr>';
+    }).join('') : `
+        <tr class="table-feedback-row">
+            <td colspan="6">${buildFeedbackState('empty', '暂无商品', '当前没有符合条件的商品。')}</td>
+        </tr>`;
 }
 
 function showProductDetail(id) {
@@ -608,7 +727,7 @@ function saveProduct() {
     const price = itemPrice.value;
     const categoryId = itemCategory.value;
     if (!name || !price || !categoryId) {
-        alert('请完整填写商品信息。');
+        showToast('请完整填写商品信息。', 'error');
         return;
     }
 
@@ -627,6 +746,7 @@ function saveProduct() {
 function doSaveProduct(payload) {
     const url = editingId ? `/api/menu/${editingId}` : '/api/menu';
     const method = editingId ? 'PUT' : 'POST';
+    const isEditing = Boolean(editingId);
     fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -635,12 +755,16 @@ function doSaveProduct(payload) {
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             resetForm();
             closeEditorModal();
             loadMenu();
+            showToast(isEditing ? '商品已更新。' : '商品已新增。', 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '商品保存失败。', 'error');
         });
 }
 
@@ -662,33 +786,50 @@ function toggleProductStatus(id) {
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             loadMenu();
+            showToast('商品状态已更新。', 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '商品状态更新失败。', 'error');
         });
 }
 
-function deleteProduct(id) {
+async function deleteProduct(id) {
     if (!requireMerchantSession()) return;
-    if (!confirm('确定要删除该商品吗？')) return;
+    const confirmed = await confirmAction('删除商品', '确定要删除该商品吗？删除后无法恢复。');
+    if (!confirmed) return;
     fetch(`/api/menu/${id}`, { method: 'DELETE', headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             loadMenu();
+            showToast('商品已删除。', 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '商品删除失败。', 'error');
         });
 }
 
 function loadCombos() {
+    setTableState(comboList, 6, 'loading', '套餐加载中', '正在读取套餐列表。');
     fetch('/api/combos', { headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
+            if (data.error) {
+                setTableState(comboList, 6, 'error', '套餐加载失败', data.error);
+                return;
+            }
             comboData = data.combos || [];
             renderCombos();
+        })
+        .catch(error => {
+            setTableState(comboList, 6, 'error', '套餐加载失败', error.message || '请稍后重试。');
         });
 }
 
@@ -732,7 +873,10 @@ function renderCombos() {
                     </div>
                 </td>
             </tr>`;
-    }).join('') : '<tr><td colspan="6">当前没有符合条件的套餐。</td></tr>';
+    }).join('') : `
+        <tr class="table-feedback-row">
+            <td colspan="6">${buildFeedbackState('empty', '暂无套餐', '当前没有符合条件的套餐。')}</td>
+        </tr>`;
 }
 
 function showComboDetail(id) {
@@ -774,7 +918,7 @@ function saveComboHandler() {
     const discount = comboDiscount.value;
     const selectedItems = Array.from(comboItems.selectedOptions).map(option => parseInt(option.value, 10));
     if (!name || !price || !selectedItems.length) {
-        alert('请完整填写套餐信息。');
+        showToast('请完整填写套餐信息。', 'error');
         return;
     }
     const payload = {
@@ -787,6 +931,7 @@ function saveComboHandler() {
     };
     const url = editingComboId ? `/api/combos/${editingComboId}` : '/api/combos';
     const method = editingComboId ? 'PUT' : 'POST';
+    const isEditing = Boolean(editingComboId);
     fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -795,12 +940,16 @@ function saveComboHandler() {
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             resetComboForm();
             closeEditorModal();
             loadCombos();
+            showToast(isEditing ? '套餐已更新。' : '套餐已新增。', 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '套餐保存失败。', 'error');
         });
 }
 
@@ -822,30 +971,39 @@ function toggleComboStatus(id) {
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             loadCombos();
+            showToast('套餐状态已更新。', 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '套餐状态更新失败。', 'error');
         });
 }
 
-function deleteCombo(id) {
+async function deleteCombo(id) {
     if (!requireMerchantSession()) return;
-    if (!confirm('确定要删除该套餐吗？')) return;
+    const confirmed = await confirmAction('删除套餐', '确定要删除该套餐吗？删除后无法恢复。');
+    if (!confirmed) return;
     fetch(`/api/combos/${id}`, { method: 'DELETE', headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             loadCombos();
+            showToast('套餐已删除。', 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '套餐删除失败。', 'error');
         });
 }
 
 function renderOrderDetail(order) {
     if (!order) {
-        orderDetailContent.innerHTML = '<p>点击某个订单后，在这里查看详情。</p>';
+        setPanelState(orderDetailContent, 'empty', '未选择订单', '点击某个订单后，在这里查看详情。');
         return;
     }
     const statusActions = {
@@ -869,15 +1027,23 @@ function renderOrderDetail(order) {
 
 function loadOrders() {
     if (!requireMerchantSession()) return;
+    setTableState(merchantOrderList, 6, 'loading', '订单加载中', '正在读取订单列表。');
+    setPanelState(orderDetailContent, 'loading', '订单详情加载中', '正在同步最新订单状态。');
     fetch('/api/orders', { headers: authHeaders() })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                merchantOrderList.innerHTML = `<tr><td colspan="6">${data.error}</td></tr>`;
+                setTableState(merchantOrderList, 6, 'error', '订单加载失败', data.error);
+                setPanelState(orderDetailContent, 'error', '订单详情加载失败', data.error);
                 return;
             }
             orderData = data.orders || [];
             renderOrders();
+        })
+        .catch(error => {
+            const message = error.message || '请稍后重试。';
+            setTableState(merchantOrderList, 6, 'error', '订单加载失败', message);
+            setPanelState(orderDetailContent, 'error', '订单详情加载失败', message);
         });
 }
 
@@ -903,7 +1069,10 @@ function renderOrders() {
                     ${order.status !== '已完成' && order.status !== '已取消' ? `<button class="secondary" onclick="updateOrderStatus(${order.id}, '${order.status === '已接单' ? '制作中' : order.status === '制作中' ? '配送中' : '已完成'}')">推进状态</button>` : ''}
                 </div>
             </td>
-        </tr>`).join('') : '<tr><td colspan="6">暂无符合条件的订单。</td></tr>';
+        </tr>`).join('') : `
+            <tr class="table-feedback-row">
+                <td colspan="6">${buildFeedbackState('empty', '暂无订单', '暂无符合条件的订单。')}</td>
+            </tr>`;
 
     if (!currentOrderDetailId && filtered.length) {
         selectOrderDetail(filtered[filtered.length - 1].id, false);
@@ -930,12 +1099,16 @@ function updateOrderStatus(orderId, status) {
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert(data.error);
+                showToast(data.error, 'error');
                 return;
             }
             loadDashboard();
             loadOrders();
             loadStore();
+            showToast(`订单已更新为“${getStatusLabel(status)}”。`, 'success');
+        })
+        .catch(error => {
+            showToast(error.message || '订单状态更新失败。', 'error');
         });
 }
 
@@ -990,6 +1163,12 @@ openComboModalBtn.addEventListener('click', () => { resetComboForm(); openEditor
 closeMerchantEditorModal.addEventListener('click', closeEditorModal);
 merchantEditorModal.addEventListener('click', event => {
     if (event.target === merchantEditorModal) closeEditorModal();
+});
+merchantConfirmSubmit.addEventListener('click', () => closeConfirmModal(true));
+merchantConfirmCancel.addEventListener('click', () => closeConfirmModal(false));
+merchantConfirmClose.addEventListener('click', () => closeConfirmModal(false));
+merchantConfirmModal.addEventListener('click', event => {
+    if (event.target === merchantConfirmModal) closeConfirmModal(false);
 });
 categorySearchInput.addEventListener('input', renderCategories);
 categoryStatusFilter.addEventListener('change', renderCategories);
