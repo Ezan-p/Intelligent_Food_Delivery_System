@@ -1,144 +1,158 @@
-# 智能外卖管理平台 - 数据持久化功能说明
+# 智能外卖管理平台 - MySQL 数据持久化说明
 
 ## 功能介绍
 
-本应用现已支持数据持久化功能。所有的数据修改（包括添加、编辑、删除商品、分类、套餐、订单、用户等）都会自动保存到后端，重新启动应用后数据依然保持。
+当前版本已将原有 JSON 文件持久化方案升级为 MySQL 持久化方案。系统中的店铺、分类、菜品、套餐、订单、评价、用户、地址、收藏和最近浏览记录等数据，都会存储在 MySQL 中。
 
-## 技术实现
+## 当前存储方案
 
-### 存储方式
-- **存储格式**: JSON 文件格式
-- **存储位置**: `data/app_data.json` 
-- **持久化时机**: 每次修改数据操作后立即保存
+### 主存储
+- MySQL
+- 建表脚本：`mysql_schema.sql`
+- 存储模块：`mysql_storage.py`
 
-### 数据结构
-```json
-{
-  "categories": [],      // 商品分类
-  "menu": [],           // 商品菜单
-  "combos": [],         // 套餐
-  "orders": [],         // 订单
-  "users": [],          // 用户
-  "counters": {         // ID 计数器
-    "next_order_id": 1,
-    "next_menu_id": 6,
-    "next_category_id": 5,
-    "next_combo_id": 2,
-    "next_user_id": 1
-  }
-}
-```
+### 历史迁移来源
+- `data/app_data.json`
 
-## 使用指南
+说明：
+- `data/app_data.json` 不再是主存储。
+- 当 MySQL 中没有业务数据且本地存在旧 JSON 文件时，系统会在启动时自动执行一次 JSON -> MySQL 迁移。
 
-### 1. 首次启动
+## 环境变量
+
+启动前请配置：
+
 ```bash
-python3 run_portals.py
+export MYSQL_HOST="127.0.0.1"
+export MYSQL_PORT="3306"
+export MYSQL_USER="root"
+export MYSQL_PASSWORD="your_password"
+export MYSQL_DATABASE="intelligent_food_delivery"
 ```
-- 若 `data/app_data.json` 不存在，应用会自动创建
-- 初始数据包含 4 个分类和 5 个菜单项
 
-### 2. 数据操作
-访问商家端 (http://localhost:5002/) 进行以下操作：
+## 数据表设计
 
-#### 商品管理
-- ✅ **添加商品**: 在商品列表中点击"添加"，新商品会立即保存
-- ✅ **编辑商品**: 修改商品信息（包括上传图片），点击保存后立即持久化
-- ✅ **删除商品**: 删除商品后数据立即从文件中移除
+系统当前使用的核心表包括：
 
-#### 分类管理  
-- ✅ **添加分类**: 新建的分类立即保存到文件
-- ✅ **编辑分类**: 分类名称修改立即保存
-- ✅ **删除分类**: 分类被删除后立即移除
+- `users`
+- `user_addresses`
+- `user_favorite_stores`
+- `user_favorite_menu`
+- `user_recent_views`
+- `stores`
+- `categories`
+- `menu_items`
+- `combos`
+- `combo_items`
+- `orders`
+- `order_items`
+- `reviews`
+- `counters`
+- `app_meta`
 
-#### 套餐管理
-- ✅ **添加套餐**: 创建的套餐立即保存
-- ✅ **编辑套餐**: 套餐信息修改立即保存
-- ✅ **删除套餐**: 套餐被删除后立即移除
+## 持久化时机
 
-#### 图片上传
-- ✅ **上传图片**: 图片转换为 base64 后与商品信息一起保存
-- ✅ **更新图片**: 编辑商品时上传新图片，新图片立即保存
-- ✅ **图片持久化**: 重启应用后图片依然显示
+以下操作发生后，都会调用后端 `persist_data()`，并将当前内存中的业务数据整体同步到 MySQL：
 
-### 3. 重启验证
-1. 关闭应用 (Ctrl+C)
-2. 重新启动应用 `python3 run_portals.py`
-3. 访问商家端或客户端，验证所有数据已保留
+- 用户注册
+- 店铺信息修改
+- 分类新增、编辑、删除
+- 菜品新增、编辑、删除、上下架
+- 套餐新增、编辑、删除、上下架
+- 订单创建、取消、完成、状态推进
+- 收藏店铺 / 收藏菜品
+- 最近浏览记录写入
+- 订单评价
+- 地址新增、编辑、删除
+- 管理员修改用户状态
+- 管理员修改店铺状态
 
 ## 工作流程
 
-```
-用户操作 (添加/编辑/删除数据)
+```text
+用户操作
     ↓
-API 端点处理请求
+API 处理请求
     ↓
-修改内存中的数据 (categories, menu, combos, orders, users)
+修改内存中的业务数据
     ↓
-调用 persist_data() 函数
+调用 persist_data()
     ↓
-更新 counters 计数器
+mysql_storage.save_data(...)
     ↓
-将所有数据写入 data/app_data.json 文件
+整体写入 MySQL
     ↓
-返回成功响应给前端
+返回结果给前端
 ```
 
-## 数据备份
+## 多端同步机制
 
-### 查看数据文件
+由于项目通过 5001 / 5002 / 5003 三个端口启动三个 Flask 进程，系统在每次请求前都会重新从 MySQL 读取最新业务数据。
+
+这样可以保证：
+
+- 商家端修改商品或店铺信息后
+- 用户端下一次自动请求接口时
+- 可以直接看到 MySQL 中的最新结果
+
+## 管理工具
+
+### 查看摘要
 ```bash
-cat data/app_data.json
+python3 manage_data.py show
 ```
 
-### 手动备份
+### 查看完整数据
 ```bash
-cp data/app_data.json data/app_data_backup.json
+python3 manage_data.py dump
 ```
 
-### 恢复备份
+### 重置为全空
 ```bash
-cp data/app_data_backup.json data/app_data.json
+python3 manage_data.py reset
+```
+
+## 手动初始化数据库
+
+```bash
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS intelligent_food_delivery DEFAULT CHARACTER SET utf8mb4;"
+mysql -u root -p intelligent_food_delivery < mysql_schema.sql
 ```
 
 ## 常见问题
 
-### Q: 为什么看不到我之前保存的数据？
-**A**: 请确认：
-1. 应用已启动
-2. 文件系统有读写权限
-3. `data` 目录存在
-4. 可以尝试删除 `data/app_data.json` 后重启应用
+### Q: 启动时报 `ModuleNotFoundError: pymysql`
+**A**：说明依赖还未安装，请执行：
 
-### Q: 图片保存后为什么看不到？
-**A**: 
-- 图片以 base64 格式保存在 JSON 中
-- 重启应用后需要重新加载页面
-- 检查浏览器控制台是否有错误
-
-### Q: 可以同时运行多个实例吗？
-**A**: 不推荐。使用相同的 `data/app_data.json` 可能导致数据冲突。建议每次只运行一个实例。
-
-### Q: 如何重置到初始状态？
-**A**: 
 ```bash
-rm data/app_data.json
-python3 run_portals.py
+python3 -m pip install -r requirements.txt
 ```
+
+### Q: 启动时报 MySQL 连接失败
+**A**：请检查：
+- MySQL 服务是否已启动
+- `MYSQL_HOST / MYSQL_PORT / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DATABASE` 是否配置正确
+- 当前账号是否有建库建表权限
+
+### Q: 旧数据为什么没显示出来？
+**A**：
+- 如果 MySQL 已经有数据，系统不会重复从 JSON 导入
+- 若需要重新迁移，可先清空目标数据库，再保留 `data/app_data.json` 后重启系统
+
+### Q: 为什么不再使用 JSON 文件？
+**A**：
+- MySQL 更适合多表关系建模
+- 更适合后续扩展查询、统计与管理功能
+- 能更好支持多门户共享同一份持久化数据
 
 ## 相关文件
 
-- `app.py` - 后端应用，包含持久化逻辑
-- `data/app_data.json` - 数据存储文件（运行时生成）
-- `templates/` - 前端页面
-- `static/` - 静态资源和脚本
-
-## 性能考虑
-
-- **IO 操作**: 每次修改都会写入文件，大量并发操作时会有性能影响
-- **文件大小**: 包含 base64 图片的 JSON 文件会较大
-- **未来改进**: 可考虑迁移到数据库（SQLite/MySQL）以提升性能
+- `app.py`
+- `mysql_storage.py`
+- `mysql_schema.sql`
+- `manage_data.py`
+- `test_persistence.py`
 
 ---
 
-**最后更新**: 2026/4/8
+**最后更新**: 2026/4/20

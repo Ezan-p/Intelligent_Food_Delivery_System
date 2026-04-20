@@ -5,6 +5,8 @@
 智能外卖管理平台/
 ├── .venv/                      # Python 虚拟环境目录（可选）
 ├── app.py                      # 主应用程序（Flask 后端）
+├── mysql_storage.py            # MySQL 存储层（建库、建表、读写、迁移）
+├── mysql_schema.sql            # MySQL 建表脚本
 ├── requirements.txt            # Python 依赖文件
 ├── README.md                   # 项目说明文档
 ├── PROJECT_STRUCTURE.md        # 项目结构说明文档
@@ -12,8 +14,8 @@
 ├── test_persistence.py         # 数据持久化测试脚本
 ├── manage_data.py              # 数据管理工具脚本
 ├── run_portals.py              # 一键同时启动用户端、商家端、管理端
-├── data/                       # 数据存储目录（运行时生成）
-│   └── app_data.json           # 应用数据文件（JSON格式，运行时创建）
+├── data/                       # 历史数据目录（用于 JSON -> MySQL 首次迁移）
+│   └── app_data.json           # 旧 JSON 数据文件（不再作为主存储）
 ├── image/                      # 图片资源目录
 │   └── 936ce3dc871111e6b87c0242ac110003_500w_667h.jpg
 ├── templates/                  # HTML 模板
@@ -53,9 +55,10 @@
   - 文本对话和图片问答功能（由远程服务能力决定）
   - 远程服务异常时自动回退模拟回复
 - 数据持久化：
-  - `load_data()`：从 `data/app_data.json` 读取数据
-  - `save_data()`：将数据写入文件
-  - `persist_data()`：每次数据修改后保存
+  - 通过 `mysql_storage.py` 读写 MySQL
+  - `load_data()`：从 MySQL 加载数据
+  - `save_data()`：将业务数据整体写入 MySQL
+  - `persist_data()`：每次数据修改后保存到 MySQL
 - 用户认证与会话：
   - 登录、注册、退出
   - 会话 ID 管理
@@ -113,41 +116,38 @@
 
 ## 数据存储结构
 
-### 运行时目录
-- `data/app_data.json`：运行时自动创建
-- `image/`：静态图片资源目录
+### 主存储
+- MySQL
+- 建表脚本：`mysql_schema.sql`
+- 存储模块：`mysql_storage.py`
 
-### JSON 数据结构
-```json
-{
-  "stores": [],
-  "categories": [],
-  "menu": [],
-  "combos": [],
-  "orders": [],
-  "users": [],
-  "counters": {
-    "next_order_id": 1,
-    "next_menu_id": 6,
-    "next_category_id": 5,
-    "next_combo_id": 2,
-    "next_user_id": 1
-  }
-}
-```
+### 核心数据表
+- `users`
+- `user_addresses`
+- `user_favorite_stores`
+- `user_favorite_menu`
+- `user_recent_views`
+- `stores`
+- `categories`
+- `menu_items`
+- `combos`
+- `combo_items`
+- `orders`
+- `order_items`
+- `reviews`
+- `counters`
 
 ## 模块说明
 
 ### `manage_data.py`
-- 提供数据查看和重置功能
+- 提供 MySQL 数据查看和重置功能
 - 支持命令：
   - `python3 manage_data.py show`
   - `python3 manage_data.py reset`
 - 会在重置前备份现有数据
 
 ### `test_persistence.py`
-- 检查 `data/app_data.json` 是否存在
-- 读取并显示持久化数据摘要
+- 检查 MySQL 连接配置和持久化数据摘要
 - 提供重启验证说明
 
 ### `DATA_PERSISTENCE.md`
@@ -180,7 +180,7 @@ python3 run_portals.py
 - ✅ 商品图片上传与持久化
 - ✅ 用户登录与地址管理
 - ✅ 完整的 CRUD 功能
-- ✅ JSON 数据持久化
+- ✅ MySQL 数据持久化
 - ✅ 响应式界面
 
 ## 说明

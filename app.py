@@ -6,6 +6,11 @@ from urllib.parse import urlparse
 from flask import Flask, jsonify, request, render_template, redirect, make_response
 from datetime import datetime
 import requests
+from mysql_storage import (
+    init_mysql_database,
+    load_data as load_mysql_data,
+    save_data as save_mysql_data,
+)
 
 app = Flask(__name__)
 
@@ -16,10 +21,9 @@ def add_no_cache_headers(response):
     response.headers["Expires"] = "0"
     return response
 
-# 数据文件路径
+# 旧 JSON 数据文件路径，仅用于首次迁移到 MySQL
 DATA_DIR = 'data'
 DATA_FILE = os.path.join(DATA_DIR, 'app_data.json')
-DATA_FILE_MTIME = 0
 
 # 创建 data 目录（如果不存在）
 if not os.path.exists(DATA_DIR):
@@ -286,37 +290,28 @@ DEFAULT_STORE_VISUALS = {
 
 # 数据加载和保存函数
 def load_data():
-    """从文件加载数据，如果文件不存在则使用默认数据"""
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            return DEFAULT_DATA.copy()
-    return DEFAULT_DATA.copy()
+    """从 MySQL 加载数据；若数据库暂不可用则回退默认数据。"""
+    return load_mysql_data(DEFAULT_DATA)
 
 def save_data(data):
-    """将数据保存到文件"""
-    global DATA_FILE_MTIME
-    try:
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        if os.path.exists(DATA_FILE):
-            DATA_FILE_MTIME = os.path.getmtime(DATA_FILE)
-    except IOError as e:
-        print(f"Error saving data: {e}")
+    """将当前业务数据整体写入 MySQL。"""
+    save_mysql_data(data)
 
 def get_all_data():
-    """获取当前所有数据"""
-    try:
-        return load_data()
-    except:
-        return DEFAULT_DATA.copy()
+    """获取当前所有数据。"""
+    return load_data()
+
+# 初始化 MySQL 存储，并在首次启动时自动迁移旧 JSON 数据
+try:
+    init_mysql_database(DEFAULT_DATA, legacy_json_path=DATA_FILE)
+except Exception as exc:
+    raise RuntimeError(
+        "MySQL 初始化失败，请检查 MYSQL_HOST、MYSQL_PORT、MYSQL_USER、MYSQL_PASSWORD、MYSQL_DATABASE 配置，"
+        "并确认 MySQL 服务已启动。"
+    ) from exc
 
 # 加载数据
 app_data = load_data()
-if os.path.exists(DATA_FILE):
-    DATA_FILE_MTIME = os.path.getmtime(DATA_FILE)
 stores = app_data.get('stores', DEFAULT_DATA['stores'])
 categories = app_data.get('categories', DEFAULT_DATA['categories'])
 menu = app_data.get('menu', DEFAULT_DATA['menu'])
@@ -341,14 +336,7 @@ MERCHANT_ORDER_STATUSES = ("已接单", "制作中", "配送中", "已完成", "
 
 def refresh_runtime_data_from_disk(force=False):
     global app_data, stores, categories, menu, combos, orders, reviews, users, counters
-    global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, next_store_id, next_review_id, DATA_FILE_MTIME
-
-    if not os.path.exists(DATA_FILE):
-        return False
-
-    current_mtime = os.path.getmtime(DATA_FILE)
-    if not force and current_mtime <= DATA_FILE_MTIME:
-        return False
+    global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, next_store_id, next_review_id
 
     latest_data = load_data()
     app_data = latest_data
@@ -368,7 +356,6 @@ def refresh_runtime_data_from_disk(force=False):
     next_user_id = counters.get('next_user_id', 1)
     next_store_id = counters.get('next_store_id', 1)
     next_review_id = counters.get('next_review_id', 1)
-    DATA_FILE_MTIME = current_mtime
     return True
 
 @app.before_request
@@ -2988,4 +2975,10 @@ if __name__ == '__main__':
     else:
         port = int(os.environ.get('PORT', port))
 
-    app.run(debug=True, host='0.0.0.0', port=port)
+    flask_debug = os.environ.get('FLASK_DEBUG', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    app.run(
+        debug=flask_debug,
+        use_reloader=False,
+        host='0.0.0.0',
+        port=port,
+    )

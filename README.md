@@ -1,6 +1,6 @@
 # 智能外卖管理平台
 
-这是一个基于 Python Flask 的外卖平台演示项目，包含前端页面和后端接口。
+这是一个基于 Python Flask 的外卖平台演示项目，包含前端页面、后端接口，以及基于 MySQL 的持久化存储。
 
 ## 功能
 
@@ -44,7 +44,24 @@ cd /Users/ezan/Desktop/毕设/智能外卖管理平台
 ```bash
 python3 -m pip install -r requirements.txt
 ```
-3. 启动服务：
+3. 配置 MySQL：
+```bash
+export MYSQL_HOST="127.0.0.1"
+export MYSQL_PORT="3306"
+export MYSQL_USER="root"
+export MYSQL_PASSWORD="your_password"
+export MYSQL_DATABASE="intelligent_food_delivery"
+```
+
+也可以直接在项目根目录创建 `.env`，内容可参考 [`.env.example`](/Users/ezan/Desktop/毕设/Intelligent Food Delivery System/.env.example)。
+
+如需手动初始化数据库，可执行：
+```bash
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS intelligent_food_delivery DEFAULT CHARACTER SET utf8mb4;"
+mysql -u root -p intelligent_food_delivery < mysql_schema.sql
+```
+
+4. 启动服务：
 ```bash
 python3 run_portals.py
 ```
@@ -54,9 +71,14 @@ python3 run_portals.py
 python3 run_portals.py
 ```
 
-4. 打开浏览器访问：
+5. 打开浏览器访问：
 
 `http://localhost:5001`、`http://localhost:5002`、`http://localhost:5003`
+
+说明：
+- 当前版本主存储为 MySQL。
+- 启动时如果 MySQL 为空且本地存在旧的 `data/app_data.json`，系统会自动把旧 JSON 数据迁移到 MySQL。
+- `data/app_data.json` 仅保留为历史迁移来源，不再作为主存储。
 
 ## 远程AI配置（HTTP API）
 
@@ -87,6 +109,28 @@ python3 run_portals.py
 - 每个端口未登录时会先进入 `/login`
 - 用户端智能服务：`/chat`、`/smart-order`
 - 商家端智能服务：`/data-analysis`
+
+## 数据存储
+
+- 主存储：MySQL
+- 建表脚本：`mysql_schema.sql`
+- 存储模块：`mysql_storage.py`
+
+核心表：
+- `users`
+- `user_addresses`
+- `user_favorite_stores`
+- `user_favorite_menu`
+- `user_recent_views`
+- `stores`
+- `categories`
+- `menu_items`
+- `combos`
+- `combo_items`
+- `orders`
+- `order_items`
+- `reviews`
+- `counters`
 
 ## API 接口
 

@@ -1,50 +1,45 @@
 #!/usr/bin/env python3
 """
-测试数据持久化功能
+测试 MySQL 数据持久化功能
 """
-import os
-import sys
-import json
-import time
-import subprocess
+from mysql_storage import MYSQL_DATABASE, MYSQL_HOST, MYSQL_PORT, get_storage_summary, init_mysql_database
+
+DEFAULT_DATA = {
+    "stores": [],
+    "categories": [],
+    "menu": [],
+    "combos": [],
+    "orders": [],
+    "reviews": [],
+    "users": [],
+    "counters": {}
+}
+
 
 def test_data_persistence():
-    """测试数据是否正确保存和恢复"""
-    
-    data_file = 'data/app_data.json'
-    
+    init_mysql_database(DEFAULT_DATA)
+    summary = get_storage_summary(DEFAULT_DATA)
     print("=" * 50)
-    print("开始测试数据持久化功能")
+    print("开始测试 MySQL 数据持久化")
     print("=" * 50)
-    
-    # 1. 检查数据文件是否存在并显示内容
-    if os.path.exists(data_file):
-        print(f"\n✓ 数据文件存在: {data_file}")
-        try:
-            with open(data_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                print(f"✓ 数据文件有效")
-                print(f"  - 分类数量: {len(data.get('categories', []))}")
-                print(f"  - 菜单项数量: {len(data.get('menu', []))}")
-                print(f"  - 套餐数量: {len(data.get('combos', []))}")
-                print(f"  - 订单数量: {len(data.get('orders', []))}")
-                print(f"  - 用户数量: {len(data.get('users', []))}")
-                print(f"  - 下一个菜单ID: {data.get('counters', {}).get('next_menu_id', 'N/A')}")
-        except json.JSONDecodeError:
-            print("✗ 数据文件格式错误")
-    else:
-        print(f"\n✗ 数据文件不存在: {data_file}")
-    
-    print("\n" + "=" * 50)
-    print("数据持久化测试完成")
+    print(f"数据库: {MYSQL_DATABASE}")
+    print(f"地址: {MYSQL_HOST}:{MYSQL_PORT}")
+    print(f"店铺数量: {summary['stores']}")
+    print(f"分类数量: {summary['categories']}")
+    print(f"菜单项数量: {summary['menu']}")
+    print(f"套餐数量: {summary['combos']}")
+    print(f"订单数量: {summary['orders']}")
+    print(f"评价数量: {summary['reviews']}")
+    print(f"用户数量: {summary['users']}")
+    print(f"计数器: {summary['counters']}")
     print("=" * 50)
-    print("\n启动服务器进行手动测试:")
-    print("  1. 启动应用: python3 app.py 5001")
-    print("  2. 访问商家端: http://localhost:5001/merchant")
-    print("  3. 添加/编辑/删除商品或分类")
-    print("  4. 关闭服务器 (Ctrl+C)")
-    print("  5. 重新启动应用，验证数据是否保留")
+    print("手动测试建议:")
+    print("  1. 确保 MySQL 已启动并完成环境变量配置")
+    print("  2. 启动应用: python3 run_portals.py")
+    print("  3. 在商家端新增或修改商品、分类、套餐、店铺信息")
+    print("  4. 重启应用后确认数据仍然存在")
     print("=" * 50)
+
 
 if __name__ == '__main__':
     test_data_persistence()
