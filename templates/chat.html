@@ -6,24 +6,150 @@
     <title>AI客服助手 - 智能外卖管理平台</title>
     <link rel="stylesheet" href="/static/style.css" />
     <style>
-        .chat-container {
-            max-width: 800px;
+        .chat-shell {
+            max-width: 1280px;
             margin: 20px auto;
-            height: calc(100vh - 140px);
+            min-height: calc(100vh - 140px);
+            display: grid;
+            grid-template-columns: 300px minmax(0, 1fr);
+            gap: 20px;
+        }
+
+        .conversation-sidebar,
+        .chat-container {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+            overflow: hidden;
+        }
+
+        .conversation-sidebar {
             display: flex;
             flex-direction: column;
-            background: #fff;
+            min-height: calc(100vh - 180px);
+        }
+
+        .sidebar-header {
+            padding: 18px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .sidebar-header h3 {
+            margin: 0;
+            font-size: 18px;
+            color: #111827;
+        }
+
+        .sidebar-header p {
+            margin: 0;
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .new-conversation-btn {
+            border: none;
             border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
+            background: #2d7ff9;
+            color: #fff;
+            padding: 12px 14px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .new-conversation-btn:hover {
+            background: #1e5fbf;
+        }
+
+        .conversation-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: #f8fafc;
+        }
+
+        .conversation-item {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            background: #fff;
+            padding: 12px;
+            text-align: left;
+            cursor: pointer;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+        }
+
+        .conversation-item:hover {
+            border-color: #93c5fd;
+            transform: translateY(-1px);
+        }
+
+        .conversation-item.active {
+            border-color: #2d7ff9;
+            box-shadow: 0 10px 24px rgba(45, 127, 249, 0.12);
+            background: #eff6ff;
+        }
+
+        .conversation-item-title {
+            margin: 0 0 6px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .conversation-item-preview {
+            margin: 0 0 8px;
+            font-size: 12px;
+            color: #64748b;
+            line-height: 1.5;
+            min-height: 18px;
+        }
+
+        .conversation-item-time {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .conversation-empty {
+            margin: auto 12px;
+            padding: 20px 16px;
+            border: 1px dashed #cbd5e1;
+            border-radius: 14px;
+            text-align: center;
+            color: #64748b;
+            background: #fff;
+        }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            min-height: calc(100vh - 180px);
         }
 
         .chat-header {
             background: #2d7ff9;
             color: white;
-            padding: 16px;
-            text-align: center;
-            font-weight: 500;
+            padding: 18px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .chat-header-main h2 {
+            margin: 0 0 4px;
+            font-size: 20px;
+        }
+
+        .chat-header-main p,
+        .chat-header-meta {
+            margin: 0;
+            font-size: 13px;
+            opacity: 0.9;
         }
 
         .chat-messages {
@@ -47,7 +173,7 @@
         }
 
         .message-content {
-            max-width: 70%;
+            max-width: 76%;
             padding: 12px 16px;
             border-radius: 18px;
             word-wrap: break-word;
@@ -62,6 +188,74 @@
             background: white;
             color: #333;
             border: 1px solid #e1e5e9;
+        }
+
+        .message.bot .message-body {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .recognized-result {
+            font-size: 13px;
+            color: #4b5563;
+            background: #f8fafc;
+            border: 1px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 10px 12px;
+        }
+
+        .recommendation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px;
+        }
+
+        .recommendation-card {
+            border: 1px solid #d9e4f5;
+            background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+            border-radius: 14px;
+            padding: 12px;
+            text-align: left;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .recommendation-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 24px rgba(45, 127, 249, 0.12);
+        }
+
+        .recommendation-score {
+            display: inline-flex;
+            margin-bottom: 8px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #dbeafe;
+            color: #1d4ed8;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .recommendation-card h4 {
+            margin: 0 0 6px;
+            font-size: 15px;
+            color: #0f172a;
+        }
+
+        .recommendation-card p {
+            margin: 0;
+            color: #475569;
+            font-size: 13px;
+        }
+
+        .recommendation-meta {
+            margin-top: 8px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 12px;
+            color: #64748b;
         }
 
         .chat-input-area {
@@ -105,17 +299,21 @@
             cursor: pointer;
         }
 
-        .image-upload-btn {
+        .image-upload-btn,
+        .send-btn {
             width: 44px;
             height: 44px;
-            border: 1px solid #d1d5db;
             border-radius: 50%;
-            background: white;
-            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
+            cursor: pointer;
             transition: all 0.2s;
+        }
+
+        .image-upload-btn {
+            border: 1px solid #d1d5db;
+            background: white;
         }
 
         .image-upload-btn:hover {
@@ -124,17 +322,9 @@
         }
 
         .send-btn {
-            width: 44px;
-            height: 44px;
             border: none;
-            border-radius: 50%;
             background: #2d7ff9;
             color: white;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s;
         }
 
         .send-btn:hover {
@@ -147,24 +337,27 @@
         }
 
         .image-preview {
-            margin-top: 8px;
-            max-width: 200px;
+            margin-bottom: 8px;
+            max-width: 220px;
             border-radius: 8px;
             display: none;
         }
 
         .typing-indicator {
             display: none;
+            padding: 0 16px 16px;
+            background: #f8f9fa;
+            color: #666;
+        }
+
+        .typing-bubble {
+            display: inline-flex;
+            gap: 4px;
+            align-items: center;
             padding: 12px 16px;
             background: white;
             border: 1px solid #e1e5e9;
             border-radius: 18px;
-            margin-bottom: 16px;
-            color: #666;
-        }
-
-        .typing-dots {
-            display: inline-block;
         }
 
         .typing-dots::after {
@@ -176,6 +369,30 @@
             0%, 20% { content: '.'; }
             40% { content: '..'; }
             60%, 100% { content: '...'; }
+        }
+
+        @media (max-width: 960px) {
+            .chat-shell {
+                grid-template-columns: 1fr;
+            }
+
+            .conversation-sidebar,
+            .chat-container {
+                min-height: auto;
+            }
+
+            .conversation-list {
+                max-height: 280px;
+            }
+
+            .message-content {
+                max-width: 88%;
+            }
+
+            .chat-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
         }
     </style>
 </head>
@@ -193,72 +410,88 @@
     </header>
 
     <main>
-        <div class="chat-container">
-            <div class="chat-header">
-                🤖 AI客服助手 - 在线为您服务
-            </div>
+        <div class="chat-shell">
+            <aside class="conversation-sidebar">
+                <div class="sidebar-header">
+                    <div>
+                        <h3>历史对话</h3>
+                        <p>可新建会话并查看过往聊天记录</p>
+                    </div>
+                    <button class="new-conversation-btn" id="newConversationBtn" type="button">+ 新建对话</button>
+                </div>
+                <div class="conversation-list" id="conversationList">
+                    <div class="conversation-empty">正在加载会话记录...</div>
+                </div>
+            </aside>
 
-            <div class="chat-messages" id="chatMessages">
-                <div class="message bot">
-                    <div class="message-content">
-                        您好！我是智能外卖平台的AI客服助手。请问有什么可以帮助您的吗？
+            <section class="chat-container">
+                <div class="chat-header">
+                    <div class="chat-header-main">
+                        <h2 id="conversationTitle">AI客服助手</h2>
+                        <p>支持问题咨询、菜品推荐、图片识别与店铺联动跳转</p>
+                    </div>
+                    <div class="chat-header-meta" id="conversationMeta">当前会话未开始</div>
+                </div>
+
+                <div class="chat-messages" id="chatMessages"></div>
+
+                <div class="typing-indicator" id="typingIndicator">
+                    <div class="typing-bubble">
+                        <span>AI正在思考</span>
+                        <span class="typing-dots"></span>
                     </div>
                 </div>
-            </div>
 
-            <div class="typing-indicator" id="typingIndicator">
-                <span>AI正在思考</span>
-                <span class="typing-dots"></span>
-            </div>
-
-            <div class="chat-input-area">
-                <div class="image-preview" id="imagePreview"></div>
-                <div class="input-group">
-                    <div class="image-upload">
-                        <input type="file" id="imageInput" accept="image/*" />
-                        <button class="image-upload-btn" title="上传图片">
-                            📷
-                        </button>
+                <div class="chat-input-area">
+                    <div class="image-preview" id="imagePreview"></div>
+                    <div class="input-group">
+                        <div class="image-upload">
+                            <input type="file" id="imageInput" accept="image/*" />
+                            <button class="image-upload-btn" title="上传图片" type="button">📷</button>
+                        </div>
+                        <textarea
+                            class="message-input"
+                            id="messageInput"
+                            placeholder="输入您的问题..."
+                            rows="1"
+                        ></textarea>
+                        <button class="send-btn" id="sendBtn" title="发送消息" type="button">➤</button>
                     </div>
-                    <textarea
-                        class="message-input"
-                        id="messageInput"
-                        placeholder="输入您的问题..."
-                        rows="1"
-                    ></textarea>
-                    <button class="send-btn" id="sendBtn" title="发送消息">
-                        ➤
-                    </button>
                 </div>
-            </div>
+            </section>
         </div>
     </main>
 
     <script>
+        const STORAGE_PREFIX = 'customer';
+        const customerHomeUrl = {{ customer_url|tojson }};
+
         const chatMessages = document.getElementById('chatMessages');
         const messageInput = document.getElementById('messageInput');
         const sendBtn = document.getElementById('sendBtn');
         const imageInput = document.getElementById('imageInput');
         const imagePreview = document.getElementById('imagePreview');
         const typingIndicator = document.getElementById('typingIndicator');
+        const conversationList = document.getElementById('conversationList');
+        const newConversationBtn = document.getElementById('newConversationBtn');
+        const conversationTitle = document.getElementById('conversationTitle');
+        const conversationMeta = document.getElementById('conversationMeta');
 
-        const STORAGE_PREFIX = 'customer';
         let currentImageData = null;
         let conversationId = localStorage.getItem('customer:aiConversationId') || '';
+        let conversations = [];
 
-        // 自动调整文本框高度
         messageInput.addEventListener('input', function() {
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 120) + 'px';
         });
 
-        // 图片上传预览
         imageInput.addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (file) {
                 const reader = new FileReader();
-                reader.onload = function(e) {
-                    currentImageData = e.target.result;
+                reader.onload = function(event) {
+                    currentImageData = event.target.result;
                     imagePreview.innerHTML = `<img src="${currentImageData}" alt="预览图片" style="max-width: 100%; border-radius: 8px;">`;
                     imagePreview.style.display = 'block';
                 };
@@ -266,58 +499,266 @@
             } else {
                 currentImageData = null;
                 imagePreview.style.display = 'none';
+                imagePreview.innerHTML = '';
             }
         });
 
-        // 发送消息
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function getJsonHeaders() {
+            const sessionId = localStorage.getItem(`${STORAGE_PREFIX}:sessionId`);
+            const headers = { 'Content-Type': 'application/json' };
+            if (sessionId) {
+                headers['X-Session-ID'] = sessionId;
+            }
+            return headers;
+        }
+
+        function clearComposer() {
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+            currentImageData = null;
+            imageInput.value = '';
+            imagePreview.innerHTML = '';
+            imagePreview.style.display = 'none';
+        }
+
+        function setConversationHeader(conversation = null) {
+            conversationTitle.textContent = conversation?.title || 'AI客服助手';
+            if (conversation?.updated_at) {
+                conversationMeta.textContent = `最近更新时间：${conversation.updated_at}`;
+            } else {
+                conversationMeta.textContent = '当前会话未开始';
+            }
+        }
+
+        function renderEmptyConversation() {
+            chatMessages.innerHTML = `
+                <div class="message bot">
+                    <div class="message-content">
+                        您好！我是智能外卖平台的AI客服助手。请问有什么可以帮助您的吗？
+                    </div>
+                </div>
+            `;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function openRecommendationTarget(card) {
+            if (!card || !card.store_id) return;
+            localStorage.setItem(`${STORAGE_PREFIX}:pendingAiTarget`, JSON.stringify({
+                target_type: card.target_type,
+                store_id: card.store_id,
+                item_id: card.item_id || null,
+                combo_id: card.combo_id || null
+            }));
+            window.location.href = customerHomeUrl;
+        }
+
+        function renderRecommendationCards(recommendations = []) {
+            if (!Array.isArray(recommendations) || !recommendations.length) return '';
+            const cards = recommendations.map(card => `
+                <button class="recommendation-card" type="button" data-card='${JSON.stringify(card).replace(/'/g, '&apos;')}'>
+                    <span class="recommendation-score">相似度 ${card.similarity_score || 0}</span>
+                    <h4>${escapeHtml(card.title || '推荐项')}</h4>
+                    <p>${escapeHtml(card.description || card.subtitle || '')}</p>
+                    <div class="recommendation-meta">
+                        <span>${escapeHtml(card.subtitle || card.card_type || '')}</span>
+                        <strong>${escapeHtml(card.price_text || '')}</strong>
+                    </div>
+                </button>
+            `).join('');
+            return `<div class="recommendation-grid">${cards}</div>`;
+        }
+
+        function attachRecommendationEvents(scope) {
+            scope.querySelectorAll('.recommendation-card').forEach(button => {
+                button.addEventListener('click', () => {
+                    const card = JSON.parse(button.dataset.card.replace(/&apos;/g, "'"));
+                    openRecommendationTarget(card);
+                });
+            });
+        }
+
+        function addMessage(content, type, imageData = null, extra = null) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+
+            let contentHtml = `<div class="message-content">${escapeHtml(content)}</div>`;
+
+            if (imageData && type === 'user') {
+                contentHtml = `
+                    <div class="message-content">
+                        ${escapeHtml(content)}
+                        <br><img src="${imageData}" alt="用户图片" style="max-width: 200px; margin-top: 8px; border-radius: 8px;">
+                    </div>
+                `;
+            } else if (type === 'bot') {
+                const recognizedHtml = extra?.recognizedText
+                    ? `<div class="recognized-result">图片识别结果：${escapeHtml(extra.recognizedText)}</div>`
+                    : '';
+                const recommendationHtml = renderRecommendationCards(extra?.recommendations || []);
+                contentHtml = `
+                    <div class="message-content">
+                        <div class="message-body">
+                            <div>${escapeHtml(content)}</div>
+                            ${recognizedHtml}
+                            ${recommendationHtml}
+                        </div>
+                    </div>
+                `;
+            }
+
+            messageDiv.innerHTML = contentHtml;
+            chatMessages.appendChild(messageDiv);
+            attachRecommendationEvents(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function renderConversationMessages(messages = []) {
+            chatMessages.innerHTML = '';
+            if (!messages.length) {
+                renderEmptyConversation();
+                return;
+            }
+            messages.forEach(message => {
+                addMessage(message.content || '', message.role === 'user' ? 'user' : 'bot');
+            });
+        }
+
+        function renderConversationList(items = []) {
+            if (!items.length) {
+                conversationList.innerHTML = '<div class="conversation-empty">还没有历史对话，先新建一个会话。</div>';
+                return;
+            }
+            conversationList.innerHTML = items.map(item => `
+                <button class="conversation-item ${item.id === conversationId ? 'active' : ''}" type="button" data-conversation-id="${item.id}">
+                    <div class="conversation-item-title">${escapeHtml(item.title || '新对话')}</div>
+                    <div class="conversation-item-preview">${escapeHtml(item.preview || '暂无消息内容')}</div>
+                    <div class="conversation-item-time">${escapeHtml(item.updated_at || item.created_at || '')}</div>
+                </button>
+            `).join('');
+
+            conversationList.querySelectorAll('.conversation-item').forEach(button => {
+                button.addEventListener('click', () => {
+                    const targetId = button.dataset.conversationId;
+                    if (targetId && targetId !== conversationId) {
+                        loadConversation(targetId);
+                    }
+                });
+            });
+        }
+
+        async function loadConversationList(preferredConversationId = null) {
+            const response = await fetch('/api/ai-conversations', {
+                method: 'GET',
+                headers: getJsonHeaders()
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || '加载会话列表失败');
+            }
+            conversations = data.conversations || [];
+            if (preferredConversationId) {
+                conversationId = preferredConversationId;
+            } else if (!conversations.some(item => item.id === conversationId)) {
+                conversationId = conversations[0]?.id || '';
+            }
+            if (conversationId) {
+                localStorage.setItem('customer:aiConversationId', conversationId);
+            } else {
+                localStorage.removeItem('customer:aiConversationId');
+            }
+            renderConversationList(conversations);
+        }
+
+        async function createConversation() {
+            const response = await fetch('/api/ai-conversations', {
+                method: 'POST',
+                headers: getJsonHeaders(),
+                body: JSON.stringify({ title: '新对话' })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || '创建会话失败');
+            }
+            const conversation = data.conversation;
+            conversationId = conversation.id;
+            localStorage.setItem('customer:aiConversationId', conversationId);
+            await loadConversationList(conversationId);
+            setConversationHeader(conversation);
+            renderConversationMessages(conversation.messages || []);
+            clearComposer();
+        }
+
+        async function loadConversation(targetConversationId) {
+            if (!targetConversationId) {
+                renderEmptyConversation();
+                setConversationHeader(null);
+                return;
+            }
+            const response = await fetch(`/api/ai-conversations/${targetConversationId}`, {
+                method: 'GET',
+                headers: getJsonHeaders()
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || '加载会话失败');
+            }
+            const conversation = data.conversation;
+            conversationId = conversation.id;
+            localStorage.setItem('customer:aiConversationId', conversationId);
+            renderConversationList(conversations);
+            setConversationHeader(conversation);
+            renderConversationMessages(conversation.messages || []);
+        }
+
         async function sendMessage() {
             const message = messageInput.value.trim();
             if (!message && !currentImageData) return;
 
-            // 添加用户消息
+            if (!conversationId) {
+                await createConversation();
+            }
+
             addMessage(message || '发送了图片', 'user', currentImageData);
-
-            // 清空输入
-            messageInput.value = '';
-            messageInput.style.height = 'auto';
-            currentImageData = null;
-            imagePreview.style.display = 'none';
-            imageInput.value = '';
-
-            // 显示打字指示器
+            const requestImageData = currentImageData;
+            clearComposer();
             typingIndicator.style.display = 'block';
             sendBtn.disabled = true;
 
             try {
-                const sessionId = localStorage.getItem(`${STORAGE_PREFIX}:sessionId`);
-                const headers = { 'Content-Type': 'application/json' };
-                if (sessionId) {
-                    headers['X-Session-ID'] = sessionId;
-                }
-
-                // 发送到服务器
                 const response = await fetch('/api/ai-agent', {
                     method: 'POST',
-                    headers,
+                    headers: getJsonHeaders(),
                     body: JSON.stringify({
-                        message: message,
-                        image_url: currentImageData,
+                        message,
+                        image_url: requestImageData,
                         conversation_id: conversationId
                     })
                 });
-
                 const data = await response.json();
-
                 if (!response.ok) {
                     throw new Error(data.error || '请求失败');
                 }
-
-                // 添加AI回复
-                addMessage(data.response, 'bot');
+                addMessage(data.response, 'bot', null, {
+                    recognizedText: data.recognized_text,
+                    recommendations: data.recommendations || []
+                });
                 if (data.conversation_id) {
                     conversationId = data.conversation_id;
                     localStorage.setItem('customer:aiConversationId', conversationId);
                 }
+                if (data.conversation) {
+                    setConversationHeader(data.conversation);
+                }
+                await loadConversationList(conversationId);
                 if (data.warning) {
                     addMessage(`提示：${data.warning}`, 'bot');
                 }
@@ -325,37 +766,36 @@
                 console.error('发送消息失败:', error);
                 addMessage('抱歉，服务暂时不可用，请稍后重试。', 'bot');
             } finally {
-                // 隐藏打字指示器
                 typingIndicator.style.display = 'none';
                 sendBtn.disabled = false;
             }
         }
 
-        // 添加消息到聊天界面
-        function addMessage(content, type, imageData = null) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${type}`;
-
-            let contentHtml = `<div class="message-content">${content}</div>`;
-
-            if (imageData && type === 'user') {
-                contentHtml = `
-                    <div class="message-content">
-                        ${content}
-                        <br><img src="${imageData}" alt="用户图片" style="max-width: 200px; margin-top: 8px; border-radius: 8px;">
-                    </div>
-                `;
+        async function initializeChatPage() {
+            renderEmptyConversation();
+            setConversationHeader(null);
+            try {
+                await loadConversationList();
+                if (conversationId) {
+                    await loadConversation(conversationId);
+                } else {
+                    await createConversation();
+                }
+            } catch (error) {
+                console.error('初始化聊天页面失败:', error);
+                conversationList.innerHTML = '<div class="conversation-empty">会话记录加载失败，请刷新后重试。</div>';
+                renderEmptyConversation();
             }
-
-            messageDiv.innerHTML = contentHtml;
-            chatMessages.appendChild(messageDiv);
-
-            // 滚动到底部
-            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
-        // 事件监听
         sendBtn.addEventListener('click', sendMessage);
+        newConversationBtn.addEventListener('click', async () => {
+            try {
+                await createConversation();
+            } catch (error) {
+                console.error('创建新对话失败:', error);
+            }
+        });
 
         messageInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -363,6 +803,8 @@
                 sendMessage();
             }
         });
+
+        initializeChatPage();
     </script>
 </body>
 </html>

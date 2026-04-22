@@ -4,6 +4,7 @@ MySQL 数据管理工具
 """
 from pprint import pprint
 import sys
+import subprocess
 
 from mysql_storage import (
     MYSQL_DATABASE,
@@ -63,6 +64,21 @@ def reset_all_data():
     print("已清空当前 MySQL 数据。")
 
 
+def seed_demo_data():
+    result = subprocess.run(
+        [sys.executable, "seed_demo_data.py"],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.stdout:
+        print(result.stdout.strip())
+    if result.returncode != 0:
+        if result.stderr:
+            print(result.stderr.strip())
+        raise SystemExit(result.returncode)
+
+
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else "show"
     if command == "show":
@@ -71,9 +87,11 @@ def main():
         dump_data()
     elif command == "reset":
         reset_all_data()
+    elif command == "seed":
+        seed_demo_data()
     else:
         print(f"未知命令: {command}")
-        print("可用命令: show / dump / reset")
+        print("可用命令: show / dump / reset / seed")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@
 <body>
     <header>
         <h1>数据智能分析</h1>
-        <p>汇总订单、收入与热销商品表现，为商家提供经营洞察。</p>
+        <p>汇总订单、销量、商品与评价表现，为商家提供经营洞察与对话式建议。</p>
         <nav class="page-nav">
             <a class="nav-link" href="{{ customer_url }}">客户端</a>
             <a class="nav-link" href="{{ merchant_url }}">商家端</a>
@@ -18,69 +18,127 @@
         </nav>
     </header>
 
-    <main>
-        <section>
-            <div class="section-header-row">
-                <div>
-                    <h2>经营分析总览</h2>
-                    <p class="analysis-summary">页面按指标卡片、图表区、AI 分析与建议三段展示。</p>
-                </div>
-                <button id="refreshAnalysis" class="primary">刷新分析</button>
-            </div>
-            <div id="analysisStats" class="analysis-kpi-grid"></div>
-        </section>
+    <div class="container-with-sidebar">
+        <aside class="sidebar">
+            <nav class="sidebar-menu sidebar-anchor-menu">
+                <a class="menu-item active" href="#analysisOverview">
+                    <span class="icon">📈</span>
+                    <span>指标概览</span>
+                </a>
+                <a class="menu-item" href="#analysisCharts">
+                    <span class="icon">📊</span>
+                    <span>图表区</span>
+                </a>
+                <a class="menu-item" href="#analysisAiSummary">
+                    <span class="icon">🧠</span>
+                    <span>AI 分析建议</span>
+                </a>
+                <a class="menu-item" href="#merchantAssistantSection">
+                    <span class="icon">💬</span>
+                    <span>经营助手</span>
+                </a>
+                <a class="menu-item" href="{{ merchant_url }}">
+                    <span class="icon">↩</span>
+                    <span>返回商家端</span>
+                </a>
+            </nav>
+        </aside>
 
-        <section>
-            <div class="section-header-row">
-                <div>
-                    <h2>图表区</h2>
-                    <p class="analysis-summary">用可视化摘要展示订单趋势、热销商品排行和时段分布。</p>
+        <main class="main-content">
+            <section id="analysisOverview">
+                <div class="section-header-row">
+                    <div>
+                        <h2>经营分析总览</h2>
+                        <p class="analysis-summary">第一段展示营业额、订单量、客单价与复购率等核心指标。</p>
+                    </div>
+                    <button id="refreshAnalysis" class="primary">刷新分析</button>
                 </div>
-            </div>
-            <div class="analysis-chart-grid">
-                <div class="analysis-panel">
-                    <h3>订单趋势</h3>
-                    <div id="orderTrendChart" class="chart-list"></div>
-                </div>
-                <div class="analysis-panel">
-                    <h3>热销商品排行</h3>
-                    <div id="topItems" class="chart-list"></div>
-                </div>
-                <div class="analysis-panel">
-                    <h3>时段分布</h3>
-                    <div id="timeDistributionChart" class="chart-list"></div>
-                </div>
-            </div>
-        </section>
+                <div id="analysisStats" class="analysis-kpi-grid"></div>
+            </section>
 
-        <section>
-            <div class="section-header-row">
-                <div>
-                    <h2>AI 分析与建议区</h2>
-                    <p class="analysis-summary">集中展示自然语言洞察、经营建议与风险提示。</p>
+            <section id="analysisCharts">
+                <div class="section-header-row">
+                    <div>
+                        <h2>图表区</h2>
+                        <p class="analysis-summary">第二段展示订单趋势、热销商品排行、时段分布与评价指标。</p>
+                    </div>
                 </div>
-            </div>
-            <div class="analysis-layout">
-                <div class="analysis-panel analysis-panel-wide">
-                    <h3>自然语言洞察</h3>
-                    <div id="analysisSource" class="analysis-summary">等待分析中...</div>
-                    <div id="analysisSummary" class="analysis-text-block"></div>
+                <div class="analysis-chart-grid">
+                    <div class="analysis-panel">
+                        <h3>订单趋势</h3>
+                        <div id="orderTrendChart" class="chart-list"></div>
+                    </div>
+                    <div class="analysis-panel">
+                        <h3>热销商品排行</h3>
+                        <div id="topItems" class="chart-list"></div>
+                    </div>
+                    <div class="analysis-panel">
+                        <h3>时段分布</h3>
+                        <div id="timeDistributionChart" class="chart-list"></div>
+                    </div>
+                    <div class="analysis-panel">
+                        <h3>评价指标</h3>
+                        <div id="reviewStatsPanel" class="chart-list"></div>
+                    </div>
                 </div>
-                <div class="analysis-panel">
-                    <h3>核心洞察</h3>
-                    <div id="analysisInsights"></div>
+            </section>
+
+            <section id="analysisAiSummary">
+                <div class="section-header-row">
+                    <div>
+                        <h2>AI 分析与建议区</h2>
+                        <p class="analysis-summary">第三段自动根据订单、销量、商品与评价数据生成自然语言总结，并补充洞察、建议和风险。</p>
+                    </div>
                 </div>
-                <div class="analysis-panel">
-                    <h3>运营建议</h3>
-                    <div id="analysisSuggestions"></div>
+                <div class="analysis-layout">
+                    <div class="analysis-panel analysis-panel-wide">
+                        <h3>自然语言总结</h3>
+                        <div id="analysisSource" class="analysis-summary">等待分析中...</div>
+                        <div id="analysisSummary" class="analysis-text-block"></div>
+                    </div>
+                    <div class="analysis-panel">
+                        <h3>核心洞察</h3>
+                        <div id="analysisInsights"></div>
+                    </div>
+                    <div class="analysis-panel">
+                        <h3>运营建议</h3>
+                        <div id="analysisSuggestions"></div>
+                    </div>
+                    <div class="analysis-panel">
+                        <h3>风险提示</h3>
+                        <div id="analysisRisks"></div>
+                    </div>
                 </div>
-                <div class="analysis-panel">
-                    <h3>风险提示</h3>
-                    <div id="analysisRisks"></div>
+            </section>
+
+            <section id="merchantAssistantSection">
+                <div class="section-header-row">
+                    <div>
+                        <h2>经营助手</h2>
+                        <p class="analysis-summary">接入大模型读取当前店铺的订单、销量、商品和评价信息，支持持续追问经营建议。</p>
+                    </div>
+                    <button id="clearMerchantAssistantBtn" class="secondary">清空对话</button>
                 </div>
-            </div>
-        </section>
-    </main>
+                <div class="merchant-assistant-layout">
+                    <div class="analysis-panel">
+                        <h3>经营上下文</h3>
+                        <div id="merchantAssistantContext" class="analysis-text-block">等待分析结果同步...</div>
+                    </div>
+                    <div class="analysis-panel analysis-panel-wide">
+                        <h3>对话区</h3>
+                        <div id="merchantAssistantMessages" class="assistant-chat-list"></div>
+                        <form id="merchantAssistantForm" class="assistant-input-form">
+                            <textarea id="merchantAssistantInput" rows="4" placeholder="例如：如何提高晚餐时段复购？哪些商品应该重点推广？差评该怎么处理？"></textarea>
+                            <div class="assistant-form-actions">
+                                <span class="analysis-summary">经营助手会自动读取当前店铺分析数据作为上下文。</span>
+                                <button type="submit" class="primary">发送问题</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
 
     <div id="analysisToast" class="app-toast toast-info" aria-live="polite"></div>
 

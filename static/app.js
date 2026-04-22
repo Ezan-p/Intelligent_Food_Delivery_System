@@ -42,6 +42,17 @@ const reviewContent = document.getElementById('reviewContent');
 const reviewImage = document.getElementById('reviewImage');
 const reviewImagePreview = document.getElementById('reviewImagePreview');
 const submitReviewBtn = document.getElementById('submitReviewBtn');
+const accountSummaryCard = document.getElementById('accountSummaryCard');
+const accountInfoList = document.getElementById('accountInfoList');
+const mySectionLinks = document.querySelectorAll('.my-subnav-link');
+const mySections = document.querySelectorAll('.my-section');
+const profileDisplayName = document.getElementById('profileDisplayName');
+const profilePhone = document.getElementById('profilePhone');
+const profileEmail = document.getElementById('profileEmail');
+const profileGender = document.getElementById('profileGender');
+const profileBirthday = document.getElementById('profileBirthday');
+const profileBio = document.getElementById('profileBio');
+const saveProfileBtn = document.getElementById('saveProfileBtn');
 
 const loginLink = document.getElementById('loginLink');
 const userInfo = document.getElementById('userInfo');
@@ -59,6 +70,7 @@ const menuItems = document.querySelectorAll('.menu-item');
 const addressMenuBtn = document.getElementById('addressMenuBtn');
 
 const STORAGE_PREFIX = 'customer';
+const CART_STORAGE_KEY = `${STORAGE_PREFIX}:cart`;
 let menuData = [];
 let categoryData = [];
 let comboData = [];
@@ -82,6 +94,16 @@ let reorderOrders = [];
 let currentStoreReviews = [];
 let currentReviewOrderId = null;
 let reviewImageData = null;
+let pendingAiTarget = null;
+
+function loadCartFromStorage() {
+    const saved = localStorage.getItem(CART_STORAGE_KEY);
+    cart = saved ? JSON.parse(saved) : [];
+}
+
+function saveCartToStorage() {
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+}
 
 function authHeaders() {
     return sessionId ? { 'X-Session-ID': sessionId } : {};
@@ -122,6 +144,15 @@ function showStoreTab(tabName) {
     }
 }
 
+function showMySection(sectionName) {
+    mySectionLinks.forEach(link => {
+        link.classList.toggle('active', link.dataset.mySection === sectionName);
+    });
+    mySections.forEach(section => {
+        section.classList.toggle('active', section.id === `my-section-${sectionName}`);
+    });
+}
+
 function formatPrice(price) {
     return Number(price).toFixed(2);
 }
@@ -151,6 +182,92 @@ function updateCurrentAddressDisplay() {
     }
     const defaultAddress = currentUser.addresses.find(item => item.is_default) || currentUser.addresses[0];
     currentAddressDisplay.textContent = defaultAddress ? `${defaultAddress.name} · ${defaultAddress.address}` : '请前往地址管理完善信息';
+}
+
+function renderAccountProfile() {
+    if (!accountSummaryCard || !accountInfoList) return;
+
+    if (!currentUser) {
+        accountSummaryCard.innerHTML = `
+            <span class="service-tag">未登录</span>
+            <h3>请先登录客户端账户</h3>
+            <p>登录后可查看个人主页、账号信息、地址、收藏与评价入口。</p>
+        `;
+        accountInfoList.innerHTML = '<p>登录后可查看账号信息。</p>';
+        if (profileDisplayName) profileDisplayName.value = '';
+        if (profilePhone) profilePhone.value = '';
+        if (profileEmail) profileEmail.value = '';
+        if (profileGender) profileGender.value = '';
+        if (profileBirthday) profileBirthday.value = '';
+        if (profileBio) profileBio.value = '';
+        return;
+    }
+
+    const addressCount = Array.isArray(currentUser.addresses) ? currentUser.addresses.length : 0;
+    const displayName = currentUser.display_name || currentUser.username;
+    accountSummaryCard.innerHTML = `
+        <span class="service-tag">${currentUser.role === 'customer' ? '用户账户' : '账户'}</span>
+        <h3>${displayName}</h3>
+        <p>${currentUser.phone || '未绑定手机号'}</p>
+        <div class="store-feed-meta">
+            <span>地址 ${addressCount}</span>
+            <span>收藏店铺 ${favoriteStoreIds.length}</span>
+            <span>收藏菜品 ${favoriteMenuIds.length}</span>
+            <span>最近浏览 ${recentViews.length}</span>
+        </div>
+    `;
+    accountInfoList.innerHTML = `
+        <h4>账号概览</h4>
+        <p>用户名：${currentUser.username}</p>
+        <p>昵称：${currentUser.display_name || '未填写'}</p>
+        <p>手机号：${currentUser.phone || '未填写'}</p>
+        <p>邮箱：${currentUser.email || '未填写'}</p>
+        <p>性别：${currentUser.gender || '未填写'}</p>
+        <p>生日：${currentUser.birthday || '未填写'}</p>
+        <p>角色：${currentUser.role || 'customer'}</p>
+        <p>默认地址：${(() => {
+            const defaultAddress = (currentUser.addresses || []).find(item => item.is_default) || (currentUser.addresses || [])[0];
+            return defaultAddress ? `${defaultAddress.name} · ${defaultAddress.address}` : '未设置';
+        })()}</p>
+        <p>个人简介：${currentUser.bio || '未填写'}</p>
+    `;
+    if (profileDisplayName) profileDisplayName.value = currentUser.display_name || '';
+    if (profilePhone) profilePhone.value = currentUser.phone || '';
+    if (profileEmail) profileEmail.value = currentUser.email || '';
+    if (profileGender) profileGender.value = currentUser.gender || '';
+    if (profileBirthday) profileBirthday.value = currentUser.birthday || '';
+    if (profileBio) profileBio.value = currentUser.bio || '';
+}
+
+function saveProfileHandler() {
+    if (!sessionId || !currentUser) {
+        alert('请先登录客户端账户。');
+        return;
+    }
+    fetch('/api/users/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+            display_name: profileDisplayName.value.trim(),
+            phone: profilePhone.value.trim(),
+            email: profileEmail.value.trim(),
+            gender: profileGender.value,
+            birthday: profileBirthday.value,
+            bio: profileBio.value.trim()
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            currentUser = data.user;
+            localStorage.setItem(`${STORAGE_PREFIX}:user`, JSON.stringify(currentUser));
+            renderAccountProfile();
+            updateCurrentAddressDisplay();
+            showToast(data.message || '个人信息已保存');
+        });
 }
 
 function syncQuickCategoryState() {
@@ -215,6 +332,57 @@ function saveSelectedStore() {
     } else {
         localStorage.removeItem(`${STORAGE_PREFIX}:selectedStore`);
     }
+}
+
+function loadPendingAiTarget() {
+    const raw = localStorage.getItem(`${STORAGE_PREFIX}:pendingAiTarget`);
+    pendingAiTarget = raw ? JSON.parse(raw) : null;
+}
+
+function clearPendingAiTarget() {
+    pendingAiTarget = null;
+    localStorage.removeItem(`${STORAGE_PREFIX}:pendingAiTarget`);
+}
+
+function highlightPendingTarget() {
+    if (!pendingAiTarget) return;
+    const selector = pendingAiTarget.target_type === 'combo'
+        ? `[data-combo-id="${pendingAiTarget.combo_id}"]`
+        : pendingAiTarget.target_type === 'item'
+            ? `[data-item-id="${pendingAiTarget.item_id}"]`
+            : null;
+    if (!selector) return;
+
+    const target = document.querySelector(selector);
+    if (!target) return;
+    target.classList.add('ai-recommended-target');
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => target.classList.remove('ai-recommended-target'), 2200);
+    clearPendingAiTarget();
+}
+
+function applyPendingAiTarget() {
+    if (!pendingAiTarget || !storeData.length) return;
+    const targetStoreId = Number(pendingAiTarget.store_id || 0);
+    if (!targetStoreId) {
+        clearPendingAiTarget();
+        return;
+    }
+    const targetStore = storeData.find(store => store.id === targetStoreId);
+    if (!targetStore) {
+        clearPendingAiTarget();
+        return;
+    }
+    selectedStore = targetStore;
+    currentCategory = 'all';
+    saveSelectedStore();
+    renderStoreList();
+    renderSelectedStoreState();
+    loadStoreData();
+    loadReviews();
+    showStoreTab(pendingAiTarget.target_type === 'combo' ? 'combos' : 'menu');
+    switchPage('store-detail');
+    window.setTimeout(highlightPendingTarget, 700);
 }
 
 function stopRealtimeRefresh() {
@@ -306,6 +474,9 @@ function loadStores(isSilent = false) {
             renderSelectedStoreState();
             if (selectedStore) {
                 loadStoreData(isSilent);
+            }
+            if (pendingAiTarget) {
+                applyPendingAiTarget();
             }
         });
 }
@@ -467,6 +638,7 @@ function renderMenu() {
             const category = categoryData.find(c => c.id === item.category_id);
             return `
                 <div class="menu-card">
+                    <div class="menu-card-inner" data-item-id="${item.id}">
                     ${item.image ? `<div class="card-image"><img src="${item.image}" alt="${item.name}" /></div>` : '<div class="card-image no-image">暂无图片</div>'}
                     <h3>${item.name}</h3>
                     <p>${item.description || '暂无描述'}</p>
@@ -478,6 +650,7 @@ function renderMenu() {
                             <button class="secondary" onclick="toggleFavoriteItem(${item.id})">${isFavoriteItem(item.id) ? '取消收藏' : '收藏菜品'}</button>
                             <button class="primary" onclick="addToCart(${item.id})">加入购物车</button>
                         </div>
+                    </div>
                     </div>
                 </div>`;
         }).join('')
@@ -511,6 +684,7 @@ function renderCombos() {
             }).join('，');
             return `
                 <div class="combo-card">
+                    <div class="combo-card-inner" data-combo-id="${combo.id}">
                     <h3>${combo.name}</h3>
                     <p>${combo.description || '暂无描述'}</p>
                     <div class="combo-items">包含商品: ${itemNames}</div>
@@ -519,6 +693,7 @@ function renderCombos() {
                         <span class="original-price">原价 ¥${formatPrice(combo.price)}</span>
                         <span class="discount">${(combo.discount * 100).toFixed(0)}%折扣</span>
                         <button class="primary" onclick="addComboToCart(${combo.id})">加入购物车</button>
+                    </div>
                     </div>
                 </div>`;
         }).join('')
@@ -547,6 +722,7 @@ function loadFavorites() {
             renderFavoriteItems(favoriteItems);
             renderRecentViews();
             renderReorderOrders();
+            renderAccountProfile();
         });
 }
 
@@ -795,6 +971,7 @@ function addToCart(id) {
 function renderCart() {
     renderSelectedStoreState();
     updateFloatingCart();
+    saveCartToStorage();
     if (!cart.length) {
         cartItems.innerHTML = '<p>购物车为空。</p>';
         cartTotal.textContent = '0.00';
@@ -1010,13 +1187,15 @@ function checkLoginStatus() {
     sessionId = localStorage.getItem(`${STORAGE_PREFIX}:sessionId`);
     const storedUser = localStorage.getItem(`${STORAGE_PREFIX}:user`);
     currentUser = storedUser ? JSON.parse(storedUser) : null;
+    loadCartFromStorage();
+    renderCart();
     if (!sessionId || !currentUser) {
         stopRealtimeRefresh();
         loginLink.style.display = 'block';
         userInfo.style.display = 'none';
-        addressMenuBtn.style.display = 'none';
         customerName.value = '';
         historyCustomer.value = '';
+        renderAccountProfile();
         return;
     }
     apiFetch('/api/users/session', { headers: authHeaders() })
@@ -1031,7 +1210,6 @@ function checkLoginStatus() {
             loginLink.style.display = 'none';
             userInfo.style.display = 'block';
             username.textContent = currentUser.username;
-            addressMenuBtn.style.display = 'flex';
             customerName.value = currentUser.username;
             historyCustomer.value = currentUser.username;
             loadAddresses();
@@ -1039,6 +1217,7 @@ function checkLoginStatus() {
             loadStores();
             loadFavorites();
             updateCurrentAddressDisplay();
+            renderAccountProfile();
             startRealtimeRefresh();
         });
 }
@@ -1054,6 +1233,7 @@ function logout(redirect = true) {
     localStorage.removeItem(`${STORAGE_PREFIX}:sessionId`);
     localStorage.removeItem(`${STORAGE_PREFIX}:user`);
     localStorage.removeItem(`${STORAGE_PREFIX}:selectedStore`);
+    localStorage.removeItem(CART_STORAGE_KEY);
     stopRealtimeRefresh();
     currentUser = null;
     sessionId = null;
@@ -1064,10 +1244,10 @@ function logout(redirect = true) {
     recentViews = [];
     reorderOrders = [];
     currentStoreReviews = [];
+    cart = [];
     closeReviewDialog();
     loginLink.style.display = 'block';
     userInfo.style.display = 'none';
-    addressMenuBtn.style.display = 'none';
     addressList.innerHTML = '<p>登录后可管理地址。</p>';
     orderList.innerHTML = '<p>登录后可查看自己的订单。</p>';
     historyList.innerHTML = '<p>登录后可查询历史订单。</p>';
@@ -1076,6 +1256,7 @@ function logout(redirect = true) {
     recentViewList.innerHTML = '<p>登录后可查看最近浏览记录。</p>';
     reorderList.innerHTML = '<p>登录后可使用一键再来一单。</p>';
     currentAddressDisplay.textContent = '请先登录后选择地址';
+    renderAccountProfile();
     if (redirect) window.location.href = '/login';
 }
 
@@ -1094,6 +1275,7 @@ function loadAddresses() {
             currentUser.addresses = data.addresses || [];
             renderAddresses();
             updateCurrentAddressDisplay();
+            renderAccountProfile();
         });
 }
 
@@ -1187,9 +1369,13 @@ submitOrder.addEventListener('click', submitOrderHandler);
 searchHistory.addEventListener('click', searchHistoryHandler);
 logoutBtn.addEventListener('click', () => logout());
 addAddressBtn.addEventListener('click', addAddressHandler);
+saveProfileBtn.addEventListener('click', saveProfileHandler);
 menuItems.forEach(item => item.addEventListener('click', () => switchPage(item.dataset.page)));
+mySectionLinks.forEach(link => {
+    link.addEventListener('click', () => showMySection(link.dataset.mySection));
+});
 document.querySelector('[data-category="all"]').addEventListener('click', () => filterByCategory('all'));
-backToStoresBtn.addEventListener('click', () => switchPage('stores'));
+backToStoresBtn.addEventListener('click', () => switchPage('home'));
 storeSearchInput.addEventListener('input', event => {
     storeSearchKeyword = event.target.value || '';
     renderStoreList();
@@ -1220,15 +1406,15 @@ reviewImage.addEventListener('change', async event => {
     reviewImageData = file ? await readFileAsDataUrl(file) : null;
     reviewImagePreview.innerHTML = reviewImageData ? `<img src="${reviewImageData}" alt="评价预览" />` : '';
 });
-homeAddressBtn.addEventListener('click', () => switchPage('addresses'));
+homeAddressBtn.addEventListener('click', () => switchPage('my'));
 messageCenterBtn.addEventListener('click', () => switchPage('orders'));
-profileCenterBtn.addEventListener('click', () => switchPage('favorites'));
+profileCenterBtn.addEventListener('click', () => switchPage('my'));
 floatingCartBtn.addEventListener('click', () => {
     if (selectedStore) {
         switchPage('store-detail');
         return;
     }
-    switchPage('cart');
+    switchPage('home');
 });
 
 window.selectStore = selectStore;
@@ -1248,9 +1434,11 @@ window.openReviewModal = openReviewModal;
 
 window.addEventListener('load', () => {
     loadSelectedStore();
+    loadPendingAiTarget();
     renderSelectedStoreState();
     syncQuickCategoryState();
     showStoreTab(currentStoreTab);
+    showMySection('profile');
     checkLoginStatus();
     renderCart();
 });

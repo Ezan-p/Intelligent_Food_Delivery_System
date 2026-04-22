@@ -3,6 +3,11 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(64) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     phone VARCHAR(32) NOT NULL DEFAULT '',
+    display_name VARCHAR(128) NOT NULL DEFAULT '',
+    email VARCHAR(128) NOT NULL DEFAULT '',
+    gender VARCHAR(16) NOT NULL DEFAULT '',
+    birthday VARCHAR(32) NOT NULL DEFAULT '',
+    bio TEXT,
     role VARCHAR(16) NOT NULL,
     account_status VARCHAR(16) NOT NULL DEFAULT 'active',
     risk_status VARCHAR(16) NOT NULL DEFAULT 'normal',
@@ -165,4 +170,24 @@ CREATE TABLE IF NOT EXISTS counters (
 CREATE TABLE IF NOT EXISTS app_meta (
     meta_key VARCHAR(64) PRIMARY KEY,
     meta_value TEXT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ai_conversations (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id INT NOT NULL,
+    title VARCHAR(255) NOT NULL DEFAULT '',
+    created_at VARCHAR(32) NOT NULL DEFAULT '',
+    updated_at VARCHAR(32) NOT NULL DEFAULT '',
+    KEY idx_ai_conversations_user_id (user_id),
+    KEY idx_ai_conversations_updated_at (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ai_conversation_messages (
+    conversation_id VARCHAR(64) NOT NULL,
+    seq_no INT NOT NULL,
+    role VARCHAR(16) NOT NULL,
+    content LONGTEXT,
+    created_at VARCHAR(32) NOT NULL DEFAULT '',
+    PRIMARY KEY (conversation_id, seq_no),
+    KEY idx_ai_conversation_messages_conversation_id (conversation_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

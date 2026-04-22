@@ -9,7 +9,7 @@
 <body>
     <header>
         <h1>智能点餐助手</h1>
-        <p>根据人数、预算和口味偏好，快速生成个性化点餐建议。</p>
+        <p>不进入店铺也能推荐，并支持一键加购、换菜、预算不变重新搭配。</p>
         <nav class="page-nav">
             <a class="nav-link" href="{{ customer_url }}">客户端</a>
             <a class="nav-link" href="{{ merchant_url }}">商家端</a>
@@ -20,29 +20,135 @@
     </header>
 
     <main>
-        <section>
-            <h2>点餐需求</h2>
-            <div class="analysis-layout">
-                <div class="analysis-panel">
-                    <div id="assistantStoreMeta" class="analysis-summary">请先在用户端选择店铺。</div>
-                    <div class="form-group">
-                        <label>人数</label>
-                        <input type="number" id="peopleCount" min="1" value="1" />
+        <section class="smart-order-shell">
+            <div class="smart-order-layout">
+                <aside class="smart-order-sidebar">
+                    <div class="smart-order-panel">
+                        <h2>智能点餐</h2>
+                        <div id="assistantStoreMeta" class="analysis-summary">默认按全平台推荐，也可优先参考当前已选店铺。</div>
+                        <div class="form-group">
+                            <label>推荐范围</label>
+                            <select id="scopeMode">
+                                <option value="all">全平台推荐</option>
+                                <option value="selected">优先当前店铺</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>人数</label>
+                            <input type="number" id="peopleCount" min="1" value="1" />
+                        </div>
+                        <div class="form-group">
+                            <label>预算</label>
+                            <input type="number" id="budget" min="0" step="0.01" placeholder="例如 60" />
+                        </div>
+                        <div class="form-group">
+                            <label>口味偏好标签</label>
+                            <div id="preferenceTagGroup" class="smart-constraint-chips">
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="不辣">不辣</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="微辣">微辣</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="中辣">中辣</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="重辣">重辣</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="超辣">超辣</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="清淡">清淡</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="重口味">重口味</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="偏甜">偏甜</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="偏咸">偏咸</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="偏酸">偏酸</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="鲜香">鲜香</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="浓郁">浓郁</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="清爽">清爽</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="偏油">偏油</button>
+                                <button class="secondary smart-chip smart-pref-tag" type="button" data-tag="少油">少油</button>
+                            </div>
+                        </div>
+                        <div class="smart-constraint-chips">
+                            <span class="analysis-summary" id="selectedPreferenceSummary">当前未选择固定偏好标签。</span>
+                        </div>
+                        <div class="form-group">
+                            <label>其他需求</label>
+                            <input type="text" id="otherRequirements" placeholder="例如：想吃热乎的、适合加班、别太油、最好有汤" />
+                            <small id="otherRequirementHint" class="analysis-summary">系统会先提炼关键词，再据此搜索更匹配的店铺和菜品。</small>
+                        </div>
+                        <button id="generateRecommendation" class="primary">生成推荐</button>
                     </div>
-                    <div class="form-group">
-                        <label>预算（可选）</label>
-                        <input type="number" id="budget" min="0" step="0.01" placeholder="例如 60" />
+
+                    <div class="smart-order-panel freestyle-panel">
+                        <div class="smart-panel-heading">
+                            <div>
+                                <h2>随心智能点</h2>
+                                <p>根据情绪、时间段和场景，让系统更感性地推荐。</p>
+                            </div>
+                            <span class="service-tag">新增</span>
+                        </div>
+                        <div class="form-group">
+                            <label>当前情绪</label>
+                            <select id="freestyleEmotion">
+                                <option value="">请选择</option>
+                                <option value="开心">开心</option>
+                                <option value="疲惫">疲惫</option>
+                                <option value="治愈">想吃点治愈的</option>
+                                <option value="压力大">压力大</option>
+                                <option value="想犒劳自己">想犒劳自己</option>
+                                <option value="纠结不知道吃什么">纠结不知道吃什么</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>时间段</label>
+                            <select id="freestyleTimeSlot">
+                                <option value="">请选择</option>
+                                <option value="早餐">早餐</option>
+                                <option value="午餐">午餐</option>
+                                <option value="下午茶">下午茶</option>
+                                <option value="晚餐">晚餐</option>
+                                <option value="夜宵">夜宵</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>当前场景</label>
+                            <select id="freestyleScene">
+                                <option value="">请选择</option>
+                                <option value="一个人">一个人</option>
+                                <option value="双人">双人</option>
+                                <option value="朋友聚餐">朋友聚餐</option>
+                                <option value="宿舍拼单">宿舍拼单</option>
+                                <option value="加班补能量">加班补能量</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>补充说明</label>
+                            <input type="text" id="freestyleNotes" placeholder="例如：想吃热乎一点、不要太油、想来点甜的" />
+                        </div>
+                        <button id="generateFreestyleRecommendation" class="primary">生成随心推荐</button>
                     </div>
-                    <div class="form-group">
-                        <label>口味偏好 / 忌口</label>
-                        <input type="text" id="preferences" placeholder="例如：微辣、不要香菜、想吃面食" />
+                </aside>
+
+                <div class="smart-order-main">
+                    <div class="smart-order-panel">
+                        <div class="smart-order-header-row">
+                            <div>
+                                <h2>推荐结果</h2>
+                                <div id="recommendationMeta" class="analysis-summary">填写条件后点击生成推荐。</div>
+                            </div>
+                            <div class="smart-order-actions" id="planActions" style="display:none;">
+                                <button id="rerollPlanBtn" class="secondary" type="button">预算不变重新搭配</button>
+                                <button id="addPlanToCartBtn" class="primary" type="button">一键加入购物车</button>
+                            </div>
+                        </div>
+                        <div id="recommendationResult" class="analysis-text-block">系统将结合全平台店铺、菜品、套餐以及你的偏好输出可继续操作的推荐结果。</div>
                     </div>
-                    <button id="generateRecommendation" class="primary">生成推荐</button>
-                </div>
-                <div class="analysis-panel">
-                    <h3>推荐结果</h3>
-                    <div id="recommendationMeta" class="analysis-summary">填写需求后点击生成推荐。</div>
-                    <div id="recommendationResult" class="analysis-text-block">系统将结合菜单、套餐和偏好输出建议。</div>
+
+                    <div class="smart-order-panel" id="planPanel" style="display:none;">
+                        <div id="planSummary" class="analysis-summary"></div>
+                        <div id="planStoreCard"></div>
+                        <div class="smart-plan-section">
+                            <h3>推荐菜品</h3>
+                            <div id="planItemList" class="smart-plan-grid"></div>
+                        </div>
+                        <div class="smart-plan-section">
+                            <h3>可选套餐</h3>
+                            <div id="planComboList" class="smart-plan-grid"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>

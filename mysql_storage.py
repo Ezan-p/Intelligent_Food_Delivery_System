@@ -39,6 +39,35 @@ MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD', '')
 MYSQL_DATABASE = os.environ.get('MYSQL_DATABASE', 'intelligent_food_delivery')
 MYSQL_CHARSET = os.environ.get('MYSQL_CHARSET', 'utf8mb4')
 
+
+def format_mysql_error(exc: Exception) -> str:
+    message = str(exc).strip() or exc.__class__.__name__
+    if "cryptography' package is required" in message:
+        return (
+            "当前 MySQL 账号使用了 sha256_password 或 caching_sha2_password 认证方式，"
+            "但当前 Python 环境缺少 cryptography 依赖。请在当前虚拟环境执行: "
+            "`python3 -m pip install cryptography`"
+        )
+    if isinstance(exc, pymysql.err.OperationalError):
+        code = exc.args[0] if exc.args else None
+        if code == 1045:
+            return (
+                "MySQL 认证失败(1045)。请检查 MYSQL_USER / MYSQL_PASSWORD 是否正确，"
+                "并确认该账号允许从当前主机连接。"
+            )
+        if code == 2003:
+            return (
+                "无法连接到 MySQL 服务(2003)。请确认 MYSQL_HOST / MYSQL_PORT 正确，"
+                "并确认 MySQL 服务已经启动。"
+            )
+        if code == 1049:
+            return (
+                f"数据库 `{MYSQL_DATABASE}` 不存在，且自动创建失败。请检查账号是否有建库权限。"
+            )
+    if isinstance(exc, pymysql.err.ProgrammingError):
+        return f"MySQL SQL 执行失败: {message}"
+    return f"MySQL 错误: {message}"
+
 TABLE_CREATION_SQL = [
     """
     CREATE TABLE IF NOT EXISTS users (
@@ -46,6 +75,11 @@ TABLE_CREATION_SQL = [
         username VARCHAR(64) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
         phone VARCHAR(32) NOT NULL DEFAULT '',
+        display_name VARCHAR(128) NOT NULL DEFAULT '',
+        email VARCHAR(128) NOT NULL DEFAULT '',
+        gender VARCHAR(16) NOT NULL DEFAULT '',
+        birthday VARCHAR(32) NOT NULL DEFAULT '',
+        bio TEXT,
         role VARCHAR(16) NOT NULL,
         account_status VARCHAR(16) NOT NULL DEFAULT 'active',
         risk_status VARCHAR(16) NOT NULL DEFAULT 'normal',
@@ -223,10 +257,42 @@ TABLE_CREATION_SQL = [
         meta_key VARCHAR(64) PRIMARY KEY,
         meta_value TEXT
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ai_conversations (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id INT NOT NULL,
+        title VARCHAR(255) NOT NULL DEFAULT '',
+        created_at VARCHAR(32) NOT NULL DEFAULT '',
+        updated_at VARCHAR(32) NOT NULL DEFAULT '',
+        KEY idx_ai_conversations_user_id (user_id),
+        KEY idx_ai_conversations_updated_at (updated_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ai_conversation_messages (
+        conversation_id VARCHAR(64) NOT NULL,
+        seq_no INT NOT NULL,
+        role VARCHAR(16) NOT NULL,
+        content LONGTEXT,
+        created_at VARCHAR(32) NOT NULL DEFAULT '',
+        PRIMARY KEY (conversation_id, seq_no),
+        KEY idx_ai_conversation_messages_conversation_id (conversation_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """
 ]
 
+USER_PROFILE_COLUMNS = {
+    "display_name": "ALTER TABLE users ADD COLUMN display_name VARCHAR(128) NOT NULL DEFAULT '' AFTER phone",
+    "email": "ALTER TABLE users ADD COLUMN email VARCHAR(128) NOT NULL DEFAULT '' AFTER display_name",
+    "gender": "ALTER TABLE users ADD COLUMN gender VARCHAR(16) NOT NULL DEFAULT '' AFTER email",
+    "birthday": "ALTER TABLE users ADD COLUMN birthday VARCHAR(32) NOT NULL DEFAULT '' AFTER gender",
+    "bio": "ALTER TABLE users ADD COLUMN bio TEXT AFTER birthday",
+}
+
 RESET_TABLES = [
+    'ai_conversation_messages',
+    'ai_conversations',
     'user_recent_views',
     'user_favorite_menu',
     'user_favorite_stores',
@@ -290,6 +356,18 @@ def create_tables():
         with connection.cursor() as cursor:
             for statement in TABLE_CREATION_SQL:
                 cursor.execute(statement)
+            cursor.execute(
+                """
+                SELECT COLUMN_NAME
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'users'
+                """,
+                (MYSQL_DATABASE,)
+            )
+            existing_columns = {row["COLUMN_NAME"] for row in cursor.fetchall()}
+            for column_name, statement in USER_PROFILE_COLUMNS.items():
+                if column_name not in existing_columns:
+                    cursor.execute(statement)
     finally:
         connection.close()
 
@@ -337,6 +415,7 @@ def load_data(default_data: Dict[str, Any]) -> Dict[str, Any]:
         'orders': [],
         'reviews': [],
         'users': [],
+        'ai_conversations': [],
         'counters': {}
     }
     try:
@@ -428,6 +507,25 @@ def load_data(default_data: Dict[str, Any]) -> Dict[str, Any]:
                 user['recent_views'] = recent_view_map.get(user['id'], [])
             data['users'] = user_rows
 
+            conversation_rows = _fetch_all(
+                cursor,
+                "SELECT id, user_id, title, created_at, updated_at FROM ai_conversations ORDER BY updated_at DESC, created_at DESC, id DESC"
+            )
+            conversation_message_rows = _fetch_all(
+                cursor,
+                "SELECT conversation_id, seq_no, role, content, created_at FROM ai_conversation_messages ORDER BY conversation_id, seq_no"
+            )
+            message_map = {}
+            for row in conversation_message_rows:
+                message_map.setdefault(row['conversation_id'], []).append({
+                    'role': row['role'],
+                    'content': row['content'] or '',
+                    'created_at': row['created_at'],
+                })
+            for conversation in conversation_rows:
+                conversation['messages'] = message_map.get(conversation['id'], [])
+            data['ai_conversations'] = conversation_rows
+
             counter_rows = _fetch_all(cursor, "SELECT counter_key, counter_value FROM counters")
             data['counters'] = {row['counter_key']: int(row['counter_value']) for row in counter_rows}
     finally:
@@ -449,15 +547,20 @@ def save_data(data: Dict[str, Any]):
                 cursor.execute(
                     """
                     INSERT INTO users (
-                        id, username, password, phone, role, account_status, risk_status, admin_note,
-                        store_id, store_name, store_description, created_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        id, username, password, phone, display_name, email, gender, birthday, bio,
+                        role, account_status, risk_status, admin_note, store_id, store_name, store_description, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         user.get('id'),
                         user.get('username', ''),
                         user.get('password', ''),
                         user.get('phone', ''),
+                        user.get('display_name', ''),
+                        user.get('email', ''),
+                        user.get('gender', ''),
+                        user.get('birthday', ''),
+                        user.get('bio', ''),
                         user.get('role', 'customer'),
                         user.get('account_status', 'active'),
                         user.get('risk_status', 'normal'),
@@ -642,6 +745,35 @@ def save_data(data: Dict[str, Any]):
                         review.get('created_at', ''),
                     )
                 )
+
+            for conversation in data.get('ai_conversations', []):
+                cursor.execute(
+                    """
+                    INSERT INTO ai_conversations (id, user_id, title, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        conversation.get('id'),
+                        conversation.get('user_id'),
+                        conversation.get('title', ''),
+                        conversation.get('created_at', ''),
+                        conversation.get('updated_at', ''),
+                    )
+                )
+                for seq_no, message in enumerate(conversation.get('messages', []), start=1):
+                    cursor.execute(
+                        """
+                        INSERT INTO ai_conversation_messages (conversation_id, seq_no, role, content, created_at)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """,
+                        (
+                            conversation.get('id'),
+                            seq_no,
+                            message.get('role', 'assistant'),
+                            message.get('content', ''),
+                            message.get('created_at', ''),
+                        )
+                    )
 
             for key, value in (data.get('counters') or {}).items():
                 cursor.execute(

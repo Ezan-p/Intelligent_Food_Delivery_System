@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request, render_template, redirect, make_respo
 from datetime import datetime
 import requests
 from mysql_storage import (
+    format_mysql_error,
     init_mysql_database,
     load_data as load_mysql_data,
     save_data as save_mysql_data,
@@ -58,7 +59,6 @@ REMOTE_AI_SYSTEM_PROMPT = os.environ.get(
 ).strip()
 ACTIVE_REMOTE_AI_API_URL = REMOTE_AI_API_URL
 USE_MODEL_FIELD = True
-ai_conversation_store = {}
 SERVICE_MONITOR = {
     "ai_chat_requests": 0,
     "ai_chat_failures": 0,
@@ -122,6 +122,84 @@ def trim_conversation_history(history):
         return history
     return history[-AI_CONTEXT_MAX_MESSAGES:]
 
+def build_ai_conversation_title(message):
+    text = (message or "").strip()
+    if not text:
+        return "新对话"
+    normalized = re.sub(r"\s+", " ", text)
+    return normalized[:24] or "新对话"
+
+def serialize_conversation_message(message):
+    return {
+        "role": message.get("role", "assistant"),
+        "content": message.get("content", ""),
+        "created_at": message.get("created_at", "")
+    }
+
+def serialize_conversation_summary(conversation):
+    messages = conversation.get("messages", [])
+    preview = ""
+    for message in reversed(messages):
+        content = (message.get("content") or "").strip()
+        if content:
+            preview = content[:60]
+            break
+    return {
+        "id": conversation.get("id"),
+        "title": conversation.get("title") or "新对话",
+        "preview": preview,
+        "created_at": conversation.get("created_at", ""),
+        "updated_at": conversation.get("updated_at", "")
+    }
+
+def serialize_conversation_detail(conversation):
+    payload = serialize_conversation_summary(conversation)
+    payload["messages"] = [serialize_conversation_message(message) for message in conversation.get("messages", [])]
+    return payload
+
+def get_ai_conversations_for_user(user_id):
+    return sorted(
+        [conversation for conversation in ai_conversations if conversation.get("user_id") == user_id],
+        key=lambda item: (item.get("updated_at", ""), item.get("created_at", ""), item.get("id", "")),
+        reverse=True
+    )
+
+def get_ai_conversation_by_id(conversation_id, user_id=None):
+    for conversation in ai_conversations:
+        if conversation.get("id") != conversation_id:
+            continue
+        if user_id is not None and conversation.get("user_id") != user_id:
+            return None
+        return conversation
+    return None
+
+def create_ai_conversation(user, title="新对话"):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conversation = {
+        "id": generate_conversation_id(),
+        "user_id": user.get("id"),
+        "title": title or "新对话",
+        "created_at": now,
+        "updated_at": now,
+        "messages": []
+    }
+    ai_conversations.append(conversation)
+    persist_data()
+    return conversation
+
+def append_ai_conversation_message(conversation, role, content):
+    text = (content or "").strip()
+    if not text:
+        return
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conversation.setdefault("messages", []).append({
+        "role": role,
+        "content": text,
+        "created_at": now
+    })
+    conversation["messages"] = trim_conversation_history(conversation.get("messages", []))
+    conversation["updated_at"] = now
+
 def get_user_by_session(session_id):
     session_payload = get_session_payload(session_id)
     if not session_payload:
@@ -129,43 +207,540 @@ def get_user_by_session(session_id):
     user_id = session_payload.get("user_id")
     return next((u for u in users if u.get('id') == user_id), None)
 
-def build_business_context_text(session_id=None):
-    menu_preview = menu[:8]
-    combos_preview = combos[:5]
-    orders_preview = orders[-5:]
+def build_store_catalog_summary():
+    if not stores:
+        return "当前暂无店铺数据。"
+
+    catalog_lines = []
+    active_stores = filter_active_records(stores)
+    source_stores = active_stores if active_stores else stores
+
+    for store in source_stores:
+        store_id = store.get('id')
+        store_categories = [c for c in categories if c.get('store_id') == store_id and c.get('status', 'active') == 'active']
+        store_menu = [item for item in menu if item.get('store_id') == store_id and item.get('status', 'active') == 'active']
+        store_combos = [combo for combo in combos if combo.get('store_id') == store_id and combo.get('status', 'active') == 'active']
+
+        category_names = "、".join(cat.get('name', '') for cat in store_categories[:6] if cat.get('name')) or "未分类"
+        menu_names = "；".join(
+            f"{item.get('name')} ¥{float(item.get('price', 0)):.2f}"
+            for item in store_menu[:8]
+        ) or "暂无菜品"
+        combo_names = "；".join(
+            f"{combo.get('name')} ¥{float(combo.get('price', 0)) * float(combo.get('discount', 1)):.2f}"
+            for combo in store_combos[:5]
+        ) or "暂无套餐"
+
+        catalog_lines.append(
+            f"店铺【{store.get('name')}】"
+            f" 评分{float(store.get('rating', 0)):.1f}"
+            f" 月售{store.get('monthly_sales', 0)}"
+            f" 配送费¥{float(store.get('delivery_fee', 0)):.2f}"
+            f" 起送¥{float(store.get('min_order_amount', 0)):.2f}"
+            f" 营业状态:{store.get('business_status', '营业中')}"
+            f" 分类:{category_names}"
+            f" 菜品:{menu_names}"
+            f" 套餐:{combo_names}"
+        )
+
+    return "\n".join(catalog_lines)
+
+def build_user_preference_summary(user):
+    if not user:
+        return "当前无登录用户画像。"
+
+    lines = [f"当前登录用户：{user.get('username')}"]
+
+    favorite_store_names = [
+        store.get('name')
+        for store in stores
+        if store.get('id') in user.get('favorite_store_ids', [])
+    ]
+    favorite_item_names = [
+        item.get('name')
+        for item in menu
+        if item.get('id') in user.get('favorite_menu_ids', [])
+    ]
+    recent_orders = [o for o in orders if o.get("customer") == user.get("username")]
+    recent_views = user.get('recent_views', [])[-5:]
+    default_address = next((addr for addr in user.get('addresses', []) if addr.get('is_default')), None)
+    if not default_address and user.get('addresses'):
+        default_address = user['addresses'][0]
+
+    if favorite_store_names:
+        lines.append(f"收藏店铺：{'；'.join(favorite_store_names[:6])}")
+    if favorite_item_names:
+        lines.append(f"收藏菜品：{'；'.join(favorite_item_names[:8])}")
+
+    if recent_orders:
+        order_lines = []
+        for order in recent_orders[-5:]:
+            item_names = "、".join(item.get('name', '') for item in order.get('items', [])[:5] if item.get('name')) or "无商品明细"
+            order_lines.append(
+                f"订单#{order.get('id')} 店铺:{order.get('store_name', '')} 状态:{order.get('status')} 金额:¥{float(order.get('total', 0)):.2f} 商品:{item_names}"
+            )
+        lines.append("历史订单：" + "；".join(order_lines))
+    else:
+        lines.append("历史订单：暂无订单记录。")
+
+    if recent_views:
+        view_descriptions = []
+        for view in recent_views:
+            if view.get('type') == 'store':
+                store = get_store_by_id(view.get('store_id'))
+                if store:
+                    view_descriptions.append(f"最近浏览店铺:{store.get('name')}")
+            elif view.get('type') == 'item':
+                item = next((menu_item for menu_item in menu if menu_item.get('id') == view.get('item_id')), None)
+                if item:
+                    view_descriptions.append(f"最近浏览菜品:{item.get('name')}")
+        if view_descriptions:
+            lines.append("浏览偏好：" + "；".join(view_descriptions))
+
+    if default_address:
+        lines.append(f"默认地址：{default_address.get('address')}")
+
+    lines.append("推荐时优先结合用户历史订单、收藏店铺、收藏菜品、最近浏览记录进行个性化推荐。")
+    return "\n".join(lines)
+
+def truncate_text(value, max_length=120):
+    text = str(value or "").strip()
+    if len(text) <= max_length:
+        return text
+    return text[:max_length].rstrip() + "..."
+
+def build_compact_user_preference_summary(user):
+    if not user:
+        return "用户画像：暂无。"
+
+    favorite_store_names = [
+        store.get('name')
+        for store in stores
+        if store.get('id') in (user.get('favorite_store_ids') or [])
+    ][:3]
+    favorite_item_names = [
+        item.get('name')
+        for item in menu
+        if item.get('id') in (user.get('favorite_menu_ids') or [])
+    ][:4]
+    recent_orders = [order for order in orders if order.get("customer") == user.get("username")][-2:]
+    recent_order_items = []
+    for order in recent_orders:
+        recent_order_items.extend([
+            ordered_item.get('name')
+            for ordered_item in order.get('items', [])[:3]
+            if ordered_item.get('name')
+        ])
+    recent_order_items = recent_order_items[:5]
+    recent_views = user.get('recent_views', [])[-4:]
+    recent_view_labels = []
+    for view in recent_views:
+        if view.get('type') == 'store':
+            store = get_store_by_id(view.get('store_id'))
+            if store:
+                recent_view_labels.append(f"店铺:{store.get('name')}")
+        elif view.get('type') == 'item':
+            item = next((menu_item for menu_item in menu if menu_item.get('id') == view.get('item_id')), None)
+            if item:
+                recent_view_labels.append(f"菜品:{item.get('name')}")
+
+    summary_parts = [f"用户:{user.get('username')}"]
+    if favorite_store_names:
+        summary_parts.append("收藏店铺:" + "、".join(favorite_store_names))
+    if favorite_item_names:
+        summary_parts.append("收藏菜品:" + "、".join(favorite_item_names))
+    if recent_order_items:
+        summary_parts.append("近单:" + "、".join(recent_order_items))
+    if recent_view_labels:
+        summary_parts.append("近浏览:" + "、".join(recent_view_labels[:4]))
+    return "；".join(summary_parts)
+
+def build_compact_smart_plan_summary(plan):
+    if not isinstance(plan, dict):
+        return "暂无推荐结构。"
+
+    store = plan.get("store") or {}
+    item_parts = []
+    for item in (plan.get("items") or [])[:4]:
+        item_parts.append(
+            f"{item.get('name')} ¥{float(item.get('price', 0)):.2f} 理由:{truncate_text(item.get('reason', ''), 24)}"
+        )
+    combo_parts = []
+    for combo in (plan.get("combo_alternatives") or [])[:2]:
+        combo_parts.append(f"{combo.get('name')} ¥{float(combo.get('price', 0)):.2f}")
 
     lines = [
-        "你可参考以下平台业务上下文回答，信息不足时请明确说明并引导用户提供信息。"
+        f"推荐店铺:{store.get('name', '未知店铺')}",
+        f"组合总价:¥{float(plan.get('total_price', 0)):.2f}",
+        f"约束:{'、'.join(plan.get('constraint_labels') or []) or '无'}",
+        "推荐菜品:" + ("；".join(item_parts) if item_parts else "无"),
+        "套餐备选:" + ("；".join(combo_parts) if combo_parts else "无"),
+    ]
+    return "\n".join(lines)
+
+def build_smart_order_model_prompt(user, action, people_count, budget, preferences, scoped_menu, scoped_combos, plan):
+    menu_preview = "；".join([
+        f"{item.get('name')} ¥{float(item.get('price', 0)):.2f}"
+        for item in scoped_menu[:6]
+    ]) or "暂无菜单数据"
+    combo_preview = "；".join([
+        f"{combo.get('name')} ¥{float(combo.get('price', 0)) * float(combo.get('discount', 1)):.2f}"
+        for combo in scoped_combos[:3]
+    ]) or "暂无套餐数据"
+
+    prompt = (
+        "你是智能外卖平台的点餐助手。"
+        "请基于以下摘要，用简洁中文输出 3-5 句说明：为什么这样搭配、是否符合预算、下一步如何继续调整。"
+        "不要复述原始数据，不要输出 JSON，不要长篇分析。\n"
+        f"{build_compact_user_preference_summary(user)}\n"
+        f"操作:{action}\n"
+        f"人数:{people_count}\n"
+        f"预算:{budget if budget not in (None, '') else '未提供'}\n"
+        f"偏好:{truncate_text(preferences or '未提供', 80)}\n"
+        f"菜单摘要:{menu_preview}\n"
+        f"套餐摘要:{combo_preview}\n"
+        f"推荐摘要:\n{build_compact_smart_plan_summary(plan)}"
+    )
+    return truncate_text(prompt, 2200)
+
+def extract_requirement_keywords_with_ai(other_requirements):
+    requirement_text = str(other_requirements or "").strip()
+    if not requirement_text:
+        return [], None
+
+    prompt = (
+        "请从以下外卖点餐需求中提炼 3 到 6 个可用于搜索店铺或菜品的短关键词。"
+        "只返回关键词，使用中文顿号分隔，不要解释。\n"
+        f"需求：{truncate_text(requirement_text, 120)}"
+    )
+    ai_response, err = call_remote_ai_api(prompt)
+    if ai_response:
+        normalized = re.split(r"[、,，\n]+", ai_response.strip())
+        keywords = []
+        for item in normalized:
+            keyword = item.strip().strip("。；;")
+            if len(keyword) >= 2 and keyword not in keywords:
+                keywords.append(keyword)
+        return keywords[:6], None
+    return [], err
+
+def build_preference_text(preference_tags=None, other_requirements=""):
+    tags = [str(tag).strip() for tag in (preference_tags or []) if str(tag).strip()]
+    extracted_keywords, ai_err = extract_requirement_keywords_with_ai(other_requirements)
+    if not extracted_keywords:
+        extracted_keywords = extract_search_terms(other_requirements)[:6] if other_requirements else []
+
+    combined_tokens = []
+    for token in tags + extracted_keywords:
+        if token and token not in combined_tokens:
+            combined_tokens.append(token)
+
+    return {
+        "preference_text": "、".join(combined_tokens),
+        "requirement_keywords": extracted_keywords,
+        "keyword_source": "remote_ai" if extracted_keywords and not ai_err else "local_fallback" if extracted_keywords else "none",
+        "keyword_warning": ai_err,
+    }
+
+def extract_search_terms(text):
+    raw_text = str(text or "").strip().lower()
+    if not raw_text:
+        return []
+
+    normalized = re.sub(r"[^\w\u4e00-\u9fff]+", " ", raw_text)
+    chunks = [chunk.strip() for chunk in normalized.split() if chunk.strip()]
+    terms = []
+    for chunk in chunks:
+        if len(chunk) >= 2:
+            terms.append(chunk)
+        if len(chunk) >= 4:
+            for size in range(min(6, len(chunk)), 1, -1):
+                for idx in range(0, len(chunk) - size + 1):
+                    piece = chunk[idx:idx + size]
+                    if len(piece) >= 2:
+                        terms.append(piece)
+
+    deduped = []
+    for term in terms:
+        if term not in deduped:
+            deduped.append(term)
+    return deduped[:24]
+
+def clamp_similarity_score(raw_score, term_count, bonus=0):
+    if term_count <= 0:
+        return 0
+    normalized = (raw_score + bonus) / max(term_count * 8, 1)
+    return max(0, min(100, int(round(normalized * 100))))
+
+def serialize_catalog_item(item, similarity_score=0):
+    store = get_store_by_id(item.get('store_id'))
+    category = next((cat for cat in categories if cat.get('id') == item.get('category_id')), None)
+    return {
+        "type": "item",
+        "id": item.get('id'),
+        "store_id": item.get('store_id'),
+        "store_name": store.get('name') if store else '',
+        "name": item.get('name'),
+        "description": item.get('description', ''),
+        "price": float(item.get('price', 0)),
+        "image": item.get('image'),
+        "category_name": category.get('name') if category else '',
+        "similarity_score": similarity_score,
+    }
+
+def serialize_catalog_combo(combo, similarity_score=0):
+    store = get_store_by_id(combo.get('store_id'))
+    combo_price = float(combo.get('price', 0)) * float(combo.get('discount', 1))
+    return {
+        "type": "combo",
+        "id": combo.get('id'),
+        "store_id": combo.get('store_id'),
+        "store_name": store.get('name') if store else '',
+        "name": combo.get('name'),
+        "description": combo.get('description', ''),
+        "price": combo_price,
+        "original_price": float(combo.get('price', 0)),
+        "discount": float(combo.get('discount', 1)),
+        "items": combo.get('items', []),
+        "similarity_score": similarity_score,
+    }
+
+def search_catalog_candidates(query_text):
+    terms = extract_search_terms(query_text)
+    if not terms:
+        return {"stores": [], "items": [], "combos": []}
+
+    scored_stores = []
+    visible_stores = get_visible_stores()
+    for store in visible_stores:
+        store_name = str(store.get('name', '')).lower()
+        haystack = " ".join([
+            store_name,
+            str(store.get('description', '')),
+            str(store.get('announcement', '')),
+            str(store.get('business_status', ''))
+        ]).lower()
+        score = 0
+        exact_hits = 0
+        for term in terms:
+            if term == store_name:
+                score += 12
+                exact_hits += 1
+            elif term in store_name:
+                score += 8
+            elif term in haystack:
+                score += 3
+        if score:
+            similarity = clamp_similarity_score(score, len(terms), bonus=exact_hits * 8)
+            store_payload = serialize_store(store)
+            store_payload["similarity_score"] = similarity
+            scored_stores.append((similarity, score, store_payload))
+
+    scored_items = []
+    for item in filter_active_records(menu):
+        store = get_store_by_id(item.get('store_id'))
+        if not store or store.get('status', 'active') != 'active':
+            continue
+        category = next((cat for cat in categories if cat.get('id') == item.get('category_id')), None)
+        item_name = str(item.get('name', '')).lower()
+        haystack = " ".join([
+            item_name,
+            str(item.get('description', '')),
+            str(category.get('name', '') if category else ''),
+            str(store.get('name', '')),
+            str(store.get('description', ''))
+        ]).lower()
+        score = 0
+        exact_hits = 0
+        for term in terms:
+            if term == item_name:
+                score += 15
+                exact_hits += 1
+            elif term in item_name:
+                score += 10
+            elif term in haystack:
+                score += 4
+        if score:
+            similarity = clamp_similarity_score(score, len(terms), bonus=exact_hits * 10)
+            scored_items.append((similarity, score, serialize_catalog_item(item, similarity)))
+
+    scored_combos = []
+    for combo in filter_active_records(combos):
+        store = get_store_by_id(combo.get('store_id'))
+        if not store or store.get('status', 'active') != 'active':
+            continue
+        combo_name = str(combo.get('name', '')).lower()
+        combo_item_names = " ".join(
+            next((menu_item.get('name', '') for menu_item in menu if menu_item.get('id') == item_id), '')
+            for item_id in combo.get('items', [])
+        )
+        haystack = " ".join([
+            combo_name,
+            str(combo.get('description', '')),
+            combo_item_names,
+            str(store.get('name', ''))
+        ]).lower()
+        score = 0
+        exact_hits = 0
+        for term in terms:
+            if term == combo_name:
+                score += 15
+                exact_hits += 1
+            elif term in combo_name:
+                score += 10
+            elif term in haystack:
+                score += 4
+        if score:
+            similarity = clamp_similarity_score(score, len(terms), bonus=exact_hits * 10)
+            scored_combos.append((similarity, score, serialize_catalog_combo(combo, similarity)))
+
+    scored_stores.sort(key=lambda item: (item[0], item[1], float(item[2].get('rating', 0))), reverse=True)
+    scored_items.sort(key=lambda item: (item[0], item[1], -float(item[2].get('price', 0))), reverse=True)
+    scored_combos.sort(key=lambda item: (item[0], item[1], -float(item[2].get('price', 0))), reverse=True)
+
+    return {
+        "stores": [store for _, _, store in scored_stores[:5]],
+        "items": [item for _, _, item in scored_items[:8]],
+        "combos": [combo for _, _, combo in scored_combos[:5]],
+    }
+
+def build_candidate_context_text(candidates):
+    if not candidates:
+        return ""
+
+    store_lines = []
+    for store in candidates.get("stores", []):
+        store_lines.append(
+            f"{store.get('name')} 评分{float(store.get('rating', 0)):.1f} "
+            f"配送费¥{float(store.get('delivery_fee', 0)):.2f} 起送¥{float(store.get('min_order_amount', 0)):.2f}"
+            f" 相似度{int(store.get('similarity_score', 0))}"
+        )
+
+    item_lines = []
+    for item in candidates.get("items", []):
+        item_lines.append(
+            f"{item.get('name')} ¥{float(item.get('price', 0)):.2f} "
+            f"店铺:{item.get('store_name') or '未知店铺'} 描述:{item.get('description', '')} 相似度{int(item.get('similarity_score', 0))}"
+        )
+
+    combo_lines = []
+    for combo in candidates.get("combos", []):
+        combo_lines.append(
+            f"{combo.get('name')} 到手约¥{float(combo.get('price', 0)):.2f} "
+            f"店铺:{combo.get('store_name') or '未知店铺'} 描述:{combo.get('description', '')} 相似度{int(combo.get('similarity_score', 0))}"
+        )
+
+    lines = []
+    if store_lines:
+        lines.append("图片识别后命中的相关店铺：" + "；".join(store_lines))
+    if item_lines:
+        lines.append("图片识别后命中的相关菜品：" + "；".join(item_lines))
+    if combo_lines:
+        lines.append("图片识别后命中的相关套餐：" + "；".join(combo_lines))
+    return "\n".join(lines)
+
+def build_recommendation_cards(candidates):
+    cards = []
+    for store in candidates.get("stores", []):
+        cards.append({
+            "card_type": "store",
+            "target_type": "store",
+            "store_id": store.get("id"),
+            "title": store.get("name"),
+            "subtitle": f"评分 {float(store.get('rating', 0)):.1f} · 配送费 ¥{float(store.get('delivery_fee', 0)):.2f}",
+            "description": store.get("description", "") or store.get("announcement", ""),
+            "price_text": f"起送 ¥{float(store.get('min_order_amount', 0)):.2f}",
+            "similarity_score": int(store.get("similarity_score", 0)),
+        })
+    for item in candidates.get("items", []):
+        cards.append({
+            "card_type": "item",
+            "target_type": "item",
+            "store_id": item.get("store_id"),
+            "item_id": item.get("id"),
+            "title": item.get("name"),
+            "subtitle": item.get("store_name", ""),
+            "description": item.get("description", ""),
+            "price_text": f"¥{float(item.get('price', 0)):.2f}",
+            "similarity_score": int(item.get("similarity_score", 0)),
+        })
+    for combo in candidates.get("combos", []):
+        cards.append({
+            "card_type": "combo",
+            "target_type": "combo",
+            "store_id": combo.get("store_id"),
+            "combo_id": combo.get("id"),
+            "title": combo.get("name"),
+            "subtitle": combo.get("store_name", ""),
+            "description": combo.get("description", ""),
+            "price_text": f"到手约 ¥{float(combo.get('price', 0)):.2f}",
+            "similarity_score": int(combo.get("similarity_score", 0)),
+        })
+    cards.sort(key=lambda card: card.get("similarity_score", 0), reverse=True)
+    return cards[:8]
+
+def build_image_recommendation_context(image_url, user_message="", session_id=None):
+    recognition_prompt = (
+        "请识别这张食物图片中的餐品、食材、口味或品类，"
+        "输出适合用于外卖搜索和推荐的关键词、菜名或食物描述。"
+        "不要解释过程，直接给出识别结果。"
+    )
+    recognized_text, err = call_remote_ai_api(
+        recognition_prompt,
+        image_url=image_url,
+        history=None,
+        session_id=session_id
+    )
+    if not recognized_text:
+        return "", err
+
+    combined_query = f"{recognized_text}\n{user_message or ''}".strip()
+    candidates = search_catalog_candidates(combined_query)
+    candidate_context = build_candidate_context_text(candidates)
+
+    lines = [
+        f"用户上传图片后，模型识别结果：{recognized_text}",
+    ]
+    if candidate_context:
+        lines.append(candidate_context)
+        lines.append("请结合图片识别结果和上述命中的店铺、菜品、套餐，为用户做贴合图片内容的推荐。")
+    else:
+        lines.append("当前平台中没有检索到高度匹配的店铺、菜品或套餐，请基于识别结果给出接近的推荐方向。")
+
+    return "\n".join(lines), None, {
+        "recognized_text": recognized_text,
+        "candidates": candidates,
+        "recommendation_cards": build_recommendation_cards(candidates)
+    }
+
+def build_business_context_text(session_id=None):
+    lines = [
+        "你是智能外卖平台的智能客服与推荐助手。",
+        "你可以读取平台店铺、菜品、套餐、用户历史订单、收藏记录和最近浏览记录，为用户提供推荐。",
+        "回答时可以结合用户问题，自然组织回复内容，不要套用固定模板。",
+        "如果合适，可以给出具体店铺名、菜品名、套餐名、价格区间和推荐理由。",
+        "如果用户表达的是点餐需求、预算、口味、人数、场景，请直接进入推荐模式，不要只做泛泛介绍。",
+        "如果用户咨询订单问题、复购建议或吃什么，也要结合历史订单和收藏记录进行回答。",
+        "信息不足时请明确说明，并引导用户补充预算、人数、口味、忌口、店铺偏好等信息。"
     ]
 
-    if menu_preview:
-        menu_text = "；".join([f"{item.get('name')} ¥{item.get('price')}" for item in menu_preview])
-        lines.append(f"当前在售菜品（部分）：{menu_text}")
-
-    if combos_preview:
-        combo_text = "；".join([f"{item.get('name')} ¥{item.get('price')}" for item in combos_preview])
-        lines.append(f"当前套餐（部分）：{combo_text}")
+    lines.append("平台店铺与商品目录：")
+    lines.append(build_store_catalog_summary())
 
     user = get_user_by_session(session_id)
     if user:
-        user_orders = [o for o in orders if o.get("customer") == user.get("username")]
-        recent = user_orders[-3:]
-        if recent:
-            recent_text = "；".join([
-                f"订单#{o.get('id')} 状态:{o.get('status')} 金额:¥{o.get('total')}"
-                for o in recent
-            ])
-            lines.append(f"当前登录用户：{user.get('username')}，最近订单：{recent_text}")
-        else:
-            lines.append(f"当前登录用户：{user.get('username')}，暂无订单记录。")
-    elif orders_preview:
+        lines.append(build_user_preference_summary(user))
+    else:
+        orders_preview = orders[-5:]
         recent_text = "；".join([
             f"订单#{o.get('id')} 用户:{o.get('customer')} 状态:{o.get('status')}"
             for o in orders_preview
         ])
-        lines.append(f"平台最近订单（摘要）：{recent_text}")
+        if recent_text:
+            lines.append(f"平台最近订单（摘要）：{recent_text}")
 
-    lines.append("如果用户询问订单状态，优先引导提供订单号或用户名。")
+    lines.append("如果用户询问订单状态，优先基于已有历史订单回答；若无法定位，再引导提供订单号。")
+    lines.append("请根据用户问题自由组织回答形式，但要尽量利用已提供的平台数据和用户数据。")
     return "\n".join(lines)
 
 def build_remote_ai_candidate_urls(url):
@@ -222,6 +797,7 @@ DEFAULT_DATA = {
     "orders": [],
     "reviews": [],
     "users": [],
+    "ai_conversations": [],
     "counters": {
         "next_order_id": 1,
         "next_menu_id": 6,
@@ -304,6 +880,7 @@ except Exception as exc:
     raise RuntimeError(
         "MySQL 初始化失败，请检查 MYSQL_HOST、MYSQL_PORT、MYSQL_USER、MYSQL_PASSWORD、MYSQL_DATABASE 配置，"
         "并确认 MySQL 服务已启动。"
+        f"\n具体原因: {format_mysql_error(exc)}"
     ) from exc
 
 # 加载数据
@@ -315,6 +892,7 @@ combos = app_data.get('combos', DEFAULT_DATA['combos'])
 orders = app_data.get('orders', DEFAULT_DATA['orders'])
 reviews = app_data.get('reviews', DEFAULT_DATA['reviews'])
 users = app_data.get('users', DEFAULT_DATA['users'])
+ai_conversations = app_data.get('ai_conversations', DEFAULT_DATA['ai_conversations'])
 counters = app_data.get('counters', DEFAULT_DATA['counters'])
 
 next_order_id = counters.get('next_order_id', 1)
@@ -331,7 +909,7 @@ ACTIVE_RECORD_STATUSES = ("active", "inactive")
 MERCHANT_ORDER_STATUSES = ("已接单", "制作中", "配送中", "已完成", "已取消")
 
 def refresh_runtime_data_from_disk(force=False):
-    global app_data, stores, categories, menu, combos, orders, reviews, users, counters
+    global app_data, stores, categories, menu, combos, orders, reviews, users, ai_conversations, counters
     global next_order_id, next_menu_id, next_category_id, next_combo_id, next_user_id, next_store_id, next_review_id
 
     latest_data = load_data()
@@ -343,6 +921,7 @@ def refresh_runtime_data_from_disk(force=False):
     orders = latest_data.get('orders', DEFAULT_DATA['orders'])
     reviews = latest_data.get('reviews', DEFAULT_DATA['reviews'])
     users = latest_data.get('users', DEFAULT_DATA['users'])
+    ai_conversations = latest_data.get('ai_conversations', DEFAULT_DATA['ai_conversations'])
     counters = latest_data.get('counters', DEFAULT_DATA['counters'])
 
     next_order_id = counters.get('next_order_id', 1)
@@ -489,6 +1068,21 @@ def normalize_users():
             changed = True
         if 'phone' not in user:
             user['phone'] = ''
+            changed = True
+        if 'display_name' not in user:
+            user['display_name'] = ''
+            changed = True
+        if 'email' not in user:
+            user['email'] = ''
+            changed = True
+        if 'gender' not in user:
+            user['gender'] = ''
+            changed = True
+        if 'birthday' not in user:
+            user['birthday'] = ''
+            changed = True
+        if 'bio' not in user:
+            user['bio'] = ''
             changed = True
         if 'account_status' not in user:
             user['account_status'] = 'active'
@@ -925,6 +1519,11 @@ def serialize_user(user):
         "id": user['id'],
         "username": user['username'],
         "phone": user.get('phone', ''),
+        "display_name": user.get('display_name', ''),
+        "email": user.get('email', ''),
+        "gender": user.get('gender', ''),
+        "birthday": user.get('birthday', ''),
+        "bio": user.get('bio', ''),
         "role": user.get('role', 'customer'),
         "role_label": ROLE_LABELS.get(user.get('role', 'customer'), user.get('role', 'customer')),
         "account_status": user.get('account_status', 'active'),
@@ -1049,6 +1648,7 @@ def persist_data():
         'orders': orders,
         'reviews': reviews,
         'users': users,
+        'ai_conversations': ai_conversations,
         'counters': counters
     }
     save_data(data)
@@ -1985,6 +2585,11 @@ def register_user():
         "username": username,
         "password": password,
         "phone": phone,
+        "display_name": "",
+        "email": "",
+        "gender": "",
+        "birthday": "",
+        "bio": "",
         "role": role,
         "account_status": "active",
         "risk_status": "normal",
@@ -2073,6 +2678,44 @@ def get_user_session():
     return jsonify({
         "user": serialize_user(user),
         "session_id": session_id
+    }), 200
+
+@app.route('/api/users/profile', methods=['PUT'])
+def update_user_profile():
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+
+    data = request.get_json() or {}
+    phone = data.get('phone', '').strip()
+    display_name = data.get('display_name', '').strip()
+    email = data.get('email', '').strip()
+    gender = data.get('gender', '').strip()
+    birthday = data.get('birthday', '').strip()
+    bio = data.get('bio', '').strip()
+
+    if len(display_name) > 128:
+        return jsonify({"error": "昵称长度不能超过 128 个字符。"}), 400
+    if len(email) > 128:
+        return jsonify({"error": "邮箱长度不能超过 128 个字符。"}), 400
+    if email and '@' not in email:
+        return jsonify({"error": "邮箱格式不正确。"}), 400
+    if gender and gender not in ('男', '女', '保密'):
+        return jsonify({"error": "性别仅支持男、女、保密。"}), 400
+    if len(bio) > 500:
+        return jsonify({"error": "个人简介不能超过 500 个字符。"}), 400
+
+    user['phone'] = phone
+    user['display_name'] = display_name
+    user['email'] = email
+    user['gender'] = gender
+    user['birthday'] = birthday
+    user['bio'] = bio
+    persist_data()
+
+    return jsonify({
+        "message": "个人信息已更新。",
+        "user": serialize_user(user)
     }), 200
 
 @app.route('/api/admin/overview', methods=['GET'])
@@ -2191,6 +2834,424 @@ def get_order_item_sales(store_id=None):
     )
     return ranked_sales
 
+SMART_ORDER_AVOID_RULES = {
+    "no_beef": ["牛肉", "肥牛", "牛腩", "牛排", "beef"],
+    "no_coriander": ["香菜", "芫荽", "coriander", "cilantro"],
+    "mild": ["麻辣", "香辣", "辣", "川味", "水煮", "火锅", "椒麻"],
+}
+
+SMART_ORDER_PREFERENCE_RULES = {
+    "mild": ["不辣", "微辣"],
+    "medium_spicy": ["中辣"],
+    "heavy_spicy": ["重辣", "超辣"],
+    "light": ["清淡", "清爽", "少油", "原味", "番茄", "轻食", "沙拉", "蔬菜", "粥"],
+    "heavy": ["重口味", "浓郁", "偏油", "麻辣", "香辣", "椒麻"],
+    "sweet": ["偏甜", "甜", "蛋糕", "布丁", "面包"],
+    "salty": ["偏咸"],
+    "sour": ["偏酸", "酸汤", "番茄", "酸辣"],
+    "fresh_umami": ["鲜香", "海鲜", "清汤", "蒜香"],
+    "oily": ["偏油", "油香", "爆炒", "烧烤"],
+}
+
+FREESTYLE_EMOTION_PREFERENCES = {
+    "开心": ["甜品", "饮品", "轻松分享"],
+    "疲惫": ["热汤", "清淡", "暖胃"],
+    "治愈": ["甜品", "热食", "暖心"],
+    "压力大": ["清淡", "少辣", "热汤"],
+    "想犒劳自己": ["招牌", "套餐", "肉类"],
+    "纠结不知道吃什么": ["招牌", "高评分", "经典款"],
+}
+
+FREESTYLE_TIME_PREFERENCES = {
+    "早餐": ["清淡", "粥", "面食"],
+    "午餐": ["盖饭", "套餐", "主食"],
+    "下午茶": ["饮品", "甜品", "轻食"],
+    "晚餐": ["主菜", "套餐", "热食"],
+    "夜宵": ["夜宵", "麻辣", "小吃"],
+}
+
+FREESTYLE_SCENE_PREFERENCES = {
+    "一个人": {"people_count": 1, "tokens": ["便捷", "单人餐"]},
+    "双人": {"people_count": 2, "tokens": ["双人", "分享"]},
+    "朋友聚餐": {"people_count": 3, "tokens": ["聚餐", "分享", "套餐"]},
+    "宿舍拼单": {"people_count": 4, "tokens": ["拼单", "套餐", "高性价比"]},
+    "加班补能量": {"people_count": 1, "tokens": ["饱腹", "热食", "提神"]},
+}
+
+def parse_smart_order_constraints(preferences_text):
+    text = (preferences_text or "").strip()
+    lowered = text.lower()
+    return {
+        "text": text,
+        "no_beef": any(token in lowered for token in ["不吃牛", "不要牛", "不吃牛肉", "不要牛肉", "no beef", "without beef"]),
+        "no_coriander": any(token in lowered for token in ["不要香菜", "不吃香菜", "去香菜", "no cilantro", "no coriander"]),
+        "mild": any(token in lowered for token in ["不辣", "微辣", "清淡", "少油", "清爽", "light", "mild"]),
+        "medium_spicy": any(token in lowered for token in ["中辣"]),
+        "heavy_spicy": any(token in lowered for token in ["重辣", "超辣"]),
+        "light": any(token in lowered for token in ["清淡", "少油", "轻食", "清爽", "light"]),
+        "heavy": any(token in lowered for token in ["重口味", "浓郁", "偏油"]),
+        "sweet": any(token in lowered for token in ["偏甜"]),
+        "salty": any(token in lowered for token in ["偏咸"]),
+        "sour": any(token in lowered for token in ["偏酸"]),
+        "fresh_umami": any(token in lowered for token in ["鲜香"]),
+        "oily": any(token in lowered for token in ["偏油"]),
+        "preferred_tags": [
+            key for key, keywords in SMART_ORDER_PREFERENCE_RULES.items()
+            if any(keyword.lower() in lowered for keyword in keywords)
+        ],
+        "search_terms": extract_search_terms(text)[:8]
+    }
+
+def get_category_name(category_id):
+    category = next((cat for cat in categories if cat.get("id") == category_id), None)
+    return category.get("name", "") if category else ""
+
+def get_store_search_text(store_id):
+    store = get_store_by_id(store_id)
+    if not store:
+        return ""
+    return " ".join([
+        str(store.get("name", "")),
+        str(store.get("description", "")),
+        str(store.get("announcement", "")),
+        str(store.get("business_status", "")),
+    ]).lower()
+
+def get_item_search_text(item):
+    return " ".join([
+        str(item.get("name", "")),
+        str(item.get("description", "")),
+        get_category_name(item.get("category_id")),
+        get_store_search_text(item.get("store_id")),
+    ]).lower()
+
+def calculate_item_keyword_match_score(item, search_terms):
+    if not search_terms:
+        return 0
+    item_name = str(item.get("name", "")).lower()
+    category_name = get_category_name(item.get("category_id")).lower()
+    store_text = get_store_search_text(item.get("store_id"))
+    full_text = " ".join([item_name, str(item.get("description", "")).lower(), category_name, store_text])
+    score = 0
+    for term in search_terms:
+        term_lower = str(term).lower()
+        if not term_lower:
+            continue
+        if term_lower == item_name:
+            score += 40
+        elif term_lower in item_name:
+            score += 28
+        elif term_lower in category_name:
+            score += 20
+        elif term_lower in full_text:
+            score += 12
+    return score
+
+def matches_avoid_constraints(item, constraints):
+    text = f"{item.get('name', '')} {item.get('description', '')}".lower()
+    if constraints.get("no_beef") and any(token.lower() in text for token in SMART_ORDER_AVOID_RULES["no_beef"]):
+        return False
+    if constraints.get("no_coriander") and any(token.lower() in text for token in SMART_ORDER_AVOID_RULES["no_coriander"]):
+        return False
+    return True
+
+def score_smart_order_item(item, user, constraints, preferred_store_id=None):
+    text = f"{item.get('name', '')} {item.get('description', '')}".lower()
+    score = 30.0
+    price = float(item.get("price", 0))
+    keyword_match_score = calculate_item_keyword_match_score(item, constraints.get("search_terms", []))
+
+    if preferred_store_id and item.get("store_id") == preferred_store_id:
+        score += 6
+
+    if constraints.get("mild") and any(token.lower() in text for token in SMART_ORDER_AVOID_RULES["mild"]):
+        score -= 12
+    if constraints.get("medium_spicy") and any(token in text for token in ["辣", "香辣", "麻辣", "川味"]):
+        score += 10
+    if constraints.get("heavy_spicy") and any(token in text for token in ["麻辣", "香辣", "川味", "火锅", "水煮", "烧烤"]):
+        score += 16
+    if constraints.get("light") and any(token.lower() in text for token in SMART_ORDER_PREFERENCE_RULES["light"]):
+        score += 8
+    if constraints.get("heavy") and any(token.lower() in text for token in SMART_ORDER_PREFERENCE_RULES["heavy"]):
+        score += 10
+    if constraints.get("sweet") and any(token.lower() in text for token in SMART_ORDER_PREFERENCE_RULES["sweet"]):
+        score += 10
+    if constraints.get("salty") and any(token.lower() in text for token in SMART_ORDER_PREFERENCE_RULES["salty"]):
+        score += 8
+    if constraints.get("sour") and any(token.lower() in text for token in SMART_ORDER_PREFERENCE_RULES["sour"]):
+        score += 10
+    if constraints.get("fresh_umami") and any(token.lower() in text for token in SMART_ORDER_PREFERENCE_RULES["fresh_umami"]):
+        score += 9
+    if constraints.get("oily") and any(token.lower() in text for token in SMART_ORDER_PREFERENCE_RULES["oily"]):
+        score += 8
+
+    for tag in constraints.get("preferred_tags", []):
+        keywords = SMART_ORDER_PREFERENCE_RULES.get(tag, [])
+        if any(keyword.lower() in text for keyword in keywords):
+            score += 10
+
+    if item.get("id") in (user.get("favorite_menu_ids") or []):
+        score += 12
+
+    recent_views = user.get("recent_views") or []
+    if any(view.get("item_id") == item.get("id") for view in recent_views[-8:]):
+        score += 5
+    if any(view.get("store_id") == item.get("store_id") and view.get("type") == "store" for view in recent_views[-5:]):
+        score += 3
+
+    recent_orders = [order for order in orders if order.get("customer") == user.get("username")]
+    ordered_item_names = {
+        ordered_item.get("name")
+        for order in recent_orders[-8:]
+        for ordered_item in order.get("items", [])
+    }
+    if item.get("name") in ordered_item_names:
+        score += 4
+
+    score += keyword_match_score
+    score += max(0, 10 - price / 5)
+    return round(score, 2)
+
+def estimate_target_item_count(people_count, budget=None):
+    people = max(1, int(people_count or 1))
+    count = 2 if people == 1 else min(people + 1, 4)
+    if budget not in (None, ""):
+        try:
+            budget_value = float(budget)
+            if budget_value <= 25:
+                count = 1
+            elif budget_value <= 45:
+                count = min(count, 2)
+        except (TypeError, ValueError):
+            pass
+    return max(1, count)
+
+def summarize_constraint_labels(constraints):
+    labels = []
+    if constraints.get("mild"):
+        labels.append("少辣/清淡")
+    if constraints.get("no_coriander"):
+        labels.append("去香菜")
+    if constraints.get("no_beef"):
+        labels.append("不吃牛肉")
+    if constraints.get("light"):
+        labels.append("偏清淡")
+    return labels
+
+def serialize_smart_order_item(item, score=None, reason="", card_type="item"):
+    store = get_store_by_id(item.get("store_id"))
+    return {
+        "id": item.get("id"),
+        "type": card_type,
+        "name": item.get("name", ""),
+        "description": item.get("description", ""),
+        "price": round(float(item.get("price", 0)), 2),
+        "price_text": f"¥{float(item.get('price', 0)):.2f}",
+        "store_id": item.get("store_id"),
+        "store_name": store.get("name") if store else "",
+        "store_avatar_url": store.get("avatar_url") if store else "",
+        "store_cover_image_url": store.get("cover_image_url") if store else "",
+        "image": item.get("image"),
+        "score": score,
+        "reason": reason
+    }
+
+def build_smart_order_bundle(
+    user,
+    preferences,
+    budget=None,
+    people_count=1,
+    store_id=None,
+    excluded_item_ids=None,
+    locked_item_ids=None,
+    replace_item_id=None
+):
+    constraints = parse_smart_order_constraints(preferences)
+    excluded_item_ids = {int(item_id) for item_id in (excluded_item_ids or []) if str(item_id).isdigit()}
+    locked_item_ids = [int(item_id) for item_id in (locked_item_ids or []) if str(item_id).isdigit()]
+    normalized_budget = None
+    if budget not in (None, ""):
+        try:
+            normalized_budget = round(float(budget), 2)
+        except (TypeError, ValueError):
+            normalized_budget = None
+
+    scoped_menu = filter_active_records(menu)
+    if store_id:
+        scoped_menu = [item for item in scoped_menu if item.get("store_id") == int(store_id)]
+
+    candidate_items = []
+    for item in scoped_menu:
+        if item.get("id") in excluded_item_ids:
+            continue
+        if not matches_avoid_constraints(item, constraints):
+            continue
+        candidate_items.append(item)
+
+    strong_keyword_matches = []
+    if constraints.get("search_terms"):
+        for item in candidate_items:
+            match_score = calculate_item_keyword_match_score(item, constraints["search_terms"])
+            if match_score >= 20:
+                strong_keyword_matches.append(item)
+        if strong_keyword_matches:
+            candidate_items = strong_keyword_matches
+
+    active_store_ids = sorted({item.get("store_id") for item in candidate_items if item.get("store_id") is not None})
+    if not candidate_items:
+        return None
+
+    store_scores = {}
+    for item in candidate_items:
+        current_score = score_smart_order_item(item, user, constraints, preferred_store_id=store_id)
+        store_scores[item.get("store_id")] = store_scores.get(item.get("store_id"), 0) + current_score
+
+    ranked_store_ids = [item[0] for item in sorted(store_scores.items(), key=lambda pair: pair[1], reverse=True)]
+    target_count = estimate_target_item_count(people_count, normalized_budget)
+
+    for candidate_store_id in ranked_store_ids:
+        store_items = [item for item in candidate_items if item.get("store_id") == candidate_store_id]
+        scored_items = []
+        for item in store_items:
+            score = score_smart_order_item(item, user, constraints, preferred_store_id=store_id)
+            scored_items.append((score, item))
+        scored_items.sort(key=lambda pair: (pair[0], -float(pair[1].get("price", 0))), reverse=True)
+
+        selected_items = []
+        selected_ids = set()
+        total_price = 0.0
+
+        for locked_item_id in locked_item_ids:
+            locked_item = next((item for item in store_items if item.get("id") == locked_item_id), None)
+            if not locked_item:
+                continue
+            selected_items.append((score_smart_order_item(locked_item, user, constraints, preferred_store_id=store_id), locked_item))
+            selected_ids.add(locked_item_id)
+            total_price += float(locked_item.get("price", 0))
+
+        for score, item in scored_items:
+            if item.get("id") in selected_ids:
+                continue
+            if normalized_budget is not None and total_price + float(item.get("price", 0)) > normalized_budget + 0.001:
+                continue
+            selected_items.append((score, item))
+            selected_ids.add(item.get("id"))
+            total_price += float(item.get("price", 0))
+            if len(selected_items) >= target_count:
+                break
+
+        if not selected_items:
+            continue
+
+        if replace_item_id and replace_item_id in selected_ids:
+            continue
+
+        if normalized_budget is not None and total_price > normalized_budget + 0.001:
+            continue
+
+        selected_cards = []
+        for index, (score, item) in enumerate(selected_items, start=1):
+            reason_parts = [f"第 {index} 道推荐"]
+            matched_terms = [
+                term for term in (constraints.get("search_terms") or [])
+                if term.lower() in get_item_search_text(item)
+            ][:3]
+            if matched_terms:
+                reason_parts.append("命中需求:" + "、".join(matched_terms))
+            if constraints.get("preferred_tags"):
+                reason_parts.append("符合偏好")
+            if constraints.get("light"):
+                reason_parts.append("更偏清淡")
+            if item.get("id") in (user.get("favorite_menu_ids") or []):
+                reason_parts.append("你收藏过相近菜品")
+            selected_cards.append(serialize_smart_order_item(item, score=score, reason="，".join(reason_parts)))
+
+        combo_candidates = []
+        scoped_combos = filter_active_records(combos)
+        for combo in scoped_combos:
+            if combo.get("store_id") != candidate_store_id:
+                continue
+            combo_price = round(float(combo.get("price", 0)) * float(combo.get("discount", 1)), 2)
+            if normalized_budget is not None and combo_price > normalized_budget + 0.001:
+                continue
+            combo_candidates.append({
+                "id": combo.get("id"),
+                "type": "combo",
+                "name": combo.get("name", ""),
+                "description": combo.get("description", ""),
+                "price": combo_price,
+                "price_text": f"¥{combo_price:.2f}",
+                "store_id": combo.get("store_id"),
+                "store_name": get_store_by_id(combo.get("store_id")).get("name") if get_store_by_id(combo.get("store_id")) else "",
+                "score": round(40 - combo_price / 6, 2),
+                "items": combo.get("items", []),
+            })
+        combo_candidates = sorted(combo_candidates, key=lambda combo: combo.get("score", 0), reverse=True)[:2]
+
+        store = get_store_by_id(candidate_store_id)
+        labels = summarize_constraint_labels(constraints)
+        summary_parts = [
+            f"已为 {max(1, int(people_count or 1))} 人推荐 {len(selected_cards)} 道菜",
+            f"推荐店铺：{store.get('name') if store else '未知店铺'}",
+            f"当前组合约 ¥{total_price:.2f}"
+        ]
+        if normalized_budget is not None:
+            summary_parts.append(f"预算上限 ¥{normalized_budget:.2f}")
+        if labels:
+            summary_parts.append("约束：" + "、".join(labels))
+
+        considered_stores = []
+        for store_id_item in ranked_store_ids[:6]:
+            store_item = get_store_by_id(store_id_item)
+            if not store_item:
+                continue
+            store_item_menu_count = len([item for item in candidate_items if item.get("store_id") == store_id_item])
+            considered_stores.append({
+                "id": store_item.get("id"),
+                "name": store_item.get("name"),
+                "menu_count": store_item_menu_count,
+                "rating": float(store_item.get("rating", 0)),
+            })
+
+        return {
+            "store": serialize_store(store) if store else None,
+            "items": selected_cards,
+            "combo_alternatives": combo_candidates,
+            "total_price": round(total_price, 2),
+            "budget": normalized_budget,
+            "people_count": max(1, int(people_count or 1)),
+            "preferences": preferences,
+            "constraint_labels": labels,
+            "selected_item_ids": [item["id"] for item in selected_cards],
+            "candidate_store_count": len(active_store_ids),
+            "candidate_item_count": len(candidate_items),
+            "considered_stores": considered_stores,
+            "summary": "；".join(summary_parts),
+        }
+
+    return None
+
+def build_freestyle_preferences(emotion, time_slot, scene, extra_notes):
+    tokens = []
+    emotion = (emotion or "").strip()
+    time_slot = (time_slot or "").strip()
+    scene = (scene or "").strip()
+    extra_notes = (extra_notes or "").strip()
+
+    tokens.extend(FREESTYLE_EMOTION_PREFERENCES.get(emotion, []))
+    tokens.extend(FREESTYLE_TIME_PREFERENCES.get(time_slot, []))
+    scene_config = FREESTYLE_SCENE_PREFERENCES.get(scene, {})
+    tokens.extend(scene_config.get("tokens", []))
+    if extra_notes:
+        tokens.append(extra_notes)
+
+    deduped = []
+    for token in tokens:
+        token = str(token).strip()
+        if token and token not in deduped:
+            deduped.append(token)
+    return "、".join(deduped)
+
 def build_local_order_assistant_reply(preferences, budget=None, people_count=1, menu_source=None, combo_source=None):
     preferences = (preferences or "").strip()
     people_count = max(1, int(people_count or 1))
@@ -2250,10 +3311,86 @@ def build_local_order_assistant_reply(preferences, budget=None, people_count=1, 
     lines.append("如果你告诉我口味、忌口、预算或人数，我可以继续缩小推荐范围。")
     return "\n".join(lines)
 
+
+def build_analysis_narrative_summary(store, stats, top_items, review_stats):
+    store_name = (store or {}).get("name") or "当前店铺"
+    summary_parts = []
+    summary_parts.append(
+        f"{store_name} 目前累计订单 {stats['total_orders']} 单，已完成 {stats['completed_orders']} 单，"
+        f"实现营业额 ¥{stats['total_revenue']:.2f}，平均客单价 ¥{stats['average_order_value']:.2f}。"
+    )
+    if top_items:
+        top_item = top_items[0]
+        summary_parts.append(
+            f"现阶段最强势的商品是 {top_item['name']}，累计售出 {top_item['quantity']} 份，"
+            f"对应营收约 ¥{top_item['revenue']:.2f}。"
+        )
+    if stats["repurchase_rate"] > 0:
+        summary_parts.append(
+            f"复购率约为 {stats['repurchase_rate']:.2f}%，说明已有一部分用户形成稳定回购。"
+        )
+    else:
+        summary_parts.append("当前复购用户仍偏少，后续可以通过套餐和回购券继续拉升复购。")
+
+    if review_stats["review_count"] > 0:
+        summary_parts.append(
+            f"用户共提交 {review_stats['review_count']} 条评价，综合评分 {review_stats['average_rating']:.1f} 分，"
+            f"配送 {review_stats['delivery_rating']:.1f}、包装 {review_stats['packaging_rating']:.1f}、口味 {review_stats['taste_rating']:.1f}。"
+        )
+        if review_stats["low_rating_count"] > 0:
+            summary_parts.append(
+                f"其中 {review_stats['low_rating_count']} 条为低分评价，建议优先复盘差评里的出餐、包装和口味问题。"
+            )
+    else:
+        summary_parts.append("目前还没有形成足够评价样本，建议引导已完成订单用户补充评价，便于后续做口碑优化。")
+
+    if stats["pending_orders"] > 0:
+        summary_parts.append(f"当前仍有 {stats['pending_orders']} 单待处理，需要兼顾履约效率与用户体验。")
+    if stats["cancelled_orders"] > 0:
+        summary_parts.append(f"累计取消 {stats['cancelled_orders']} 单，建议关注高峰时段、库存同步和描述一致性。")
+    return "".join(summary_parts)
+
+
+def build_merchant_assistant_fallback_reply(message, analysis_payload):
+    stats = analysis_payload.get("stats", {})
+    top_items = analysis_payload.get("top_items", [])
+    suggestions = analysis_payload.get("suggestions", [])
+    risks = analysis_payload.get("risks", [])
+    review_stats = analysis_payload.get("review_stats", {})
+
+    prompt = (message or "").strip()
+    lines = []
+
+    if "复购" in prompt:
+        lines.append(f"当前复购率约为 {stats.get('repurchase_rate', 0):.2f}%。")
+        lines.append("建议用热销商品做复购券、老客套餐和二次下单提醒。")
+    elif "评价" in prompt or "口碑" in prompt:
+        lines.append(
+            f"当前共有 {review_stats.get('review_count', 0)} 条评价，综合评分 {review_stats.get('average_rating', 0):.1f} 分。"
+        )
+        if review_stats.get("low_rating_count", 0):
+            lines.append("低分评价需要优先拆解配送、包装、口味三个维度，逐项整改。")
+    elif "销量" in prompt or "商品" in prompt:
+        if top_items:
+            top_text = "；".join([f"{item['name']} 销量 {item['quantity']}" for item in top_items[:3]])
+            lines.append(f"当前热销商品主要是：{top_text}。")
+        lines.append("建议围绕热销商品做搭配套餐，并对低销量商品重新定价或调整描述。")
+    else:
+        lines.append(analysis_payload.get("narrative_summary") or "当前已生成店铺经营概览。")
+
+    if suggestions:
+        lines.append("经营建议：" + "；".join(suggestions[:3]))
+    if risks:
+        lines.append("风险提醒：" + "；".join(risks[:2]))
+    lines.append("你也可以继续追问，例如“怎么提高复购”“哪些商品该重点推广”“差评该怎么处理”。")
+    return "\n".join(lines)
+
 def build_local_analysis_payload(store_id=None):
     scoped_orders = filter_records_by_store(orders, store_id)
     scoped_menu = filter_records_by_store(menu, store_id)
     scoped_combos = filter_records_by_store(combos, store_id)
+    scoped_reviews = filter_records_by_store(reviews, store_id)
+    store = get_store_by_id(store_id) if store_id else None
     total_orders = len(scoped_orders)
     completed_orders = [order for order in scoped_orders if order.get('status') == '已完成']
     pending_orders = [order for order in scoped_orders if order.get('status') in ('已接单', '制作中', '配送中')]
@@ -2310,11 +3447,38 @@ def build_local_analysis_payload(store_id=None):
             time_slot_map['夜宵'] += 1
     time_distribution = [{"label": label, "value": value} for label, value in time_slot_map.items()]
 
+    review_count = len(scoped_reviews)
+    average_rating = round(
+        sum(float(review.get("rating", 0)) for review in scoped_reviews) / review_count, 1
+    ) if review_count else 0.0
+    delivery_rating = round(
+        sum(float(review.get("delivery_rating", 0)) for review in scoped_reviews) / review_count, 1
+    ) if review_count else 0.0
+    packaging_rating = round(
+        sum(float(review.get("packaging_rating", 0)) for review in scoped_reviews) / review_count, 1
+    ) if review_count else 0.0
+    taste_rating = round(
+        sum(float(review.get("taste_rating", 0)) for review in scoped_reviews) / review_count, 1
+    ) if review_count else 0.0
+    low_rating_reviews = [review for review in scoped_reviews if float(review.get("rating", 0)) <= 3]
+    review_stats = {
+        "review_count": review_count,
+        "average_rating": average_rating,
+        "delivery_rating": delivery_rating,
+        "packaging_rating": packaging_rating,
+        "taste_rating": taste_rating,
+        "low_rating_count": len(low_rating_reviews)
+    }
+
     insights = []
     if top_items:
         insights.append(f"当前销量最高的是 {top_items[0]['name']}，累计售出 {top_items[0]['quantity']} 份。")
     insights.append(f"已完成订单 {len(completed_orders)} 单，平均客单价 ¥{average_order_value:.2f}。")
     insights.append(f"复购率约为 {repurchase_rate:.2f}%，可重点维护重复下单用户。")
+    if review_count:
+        insights.append(
+            f"当前共有 {review_count} 条评价，综合评分 {average_rating:.1f} 分，口味评分 {taste_rating:.1f} 分。"
+        )
     if pending_orders:
         insights.append(f"还有 {len(pending_orders)} 单待处理，建议关注出餐和配送节奏。")
     if cancelled_orders:
@@ -2332,10 +3496,23 @@ def build_local_analysis_payload(store_id=None):
         risks.append("当前待处理订单偏多，高峰承载压力较大，需关注履约节奏。")
     if repurchase_rate < 20 and completed_orders:
         risks.append("复购率偏低，建议加强会员运营、回购优惠和招牌商品复购引导。")
+    if review_count and average_rating < 4.0:
+        risks.append("当前综合评分偏低，建议重点排查差评中的口味稳定性、包装完整性和配送时效。")
     if not risks:
         risks.append("当前未发现明显高风险项，可持续观察订单取消率和高峰时段波动。")
 
+    narrative_summary = build_analysis_narrative_summary(store, {
+        "total_orders": total_orders,
+        "completed_orders": len(completed_orders),
+        "pending_orders": len(pending_orders),
+        "cancelled_orders": len(cancelled_orders),
+        "total_revenue": total_revenue,
+        "average_order_value": average_order_value,
+        "repurchase_rate": repurchase_rate
+    }, top_items, review_stats)
+
     return {
+        "store": serialize_store(store) if store else None,
         "stats": {
             "total_orders": total_orders,
             "order_volume": total_orders,
@@ -2350,11 +3527,13 @@ def build_local_analysis_payload(store_id=None):
             "combo_count": len(scoped_combos)
         },
         "top_items": top_items,
+        "review_stats": review_stats,
         "charts": {
             "order_trend": order_trend,
             "top_items": top_items,
             "time_distribution": time_distribution
         },
+        "narrative_summary": narrative_summary,
         "insights": insights,
         "suggestions": suggestions,
         "risks": risks
@@ -2466,34 +3645,68 @@ def smart_order_assistant():
 
     data = request.get_json() or {}
     store_id = data.get('store_id')
-    preferences = (data.get('preferences') or '').strip()
+    preference_tags = data.get('preference_tags') or []
+    other_requirements = str(data.get('other_requirements', '')).strip()
     budget = data.get('budget')
     people_count = data.get('people_count', 1)
-    if not store_id:
-        return jsonify({"error": "请选择店铺后再使用点餐助手。"}), 400
-    store_id = int(store_id)
-    scoped_menu = filter_records_by_store(menu, store_id)
-    scoped_combos = filter_records_by_store(combos, store_id)
+    action = str(data.get('action', 'generate')).strip() or 'generate'
+    if store_id not in (None, ''):
+        try:
+            store_id = int(store_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "店铺参数不合法。"}), 400
+    else:
+        store_id = None
 
-    menu_preview = "；".join([
-        f"{item.get('name')} ¥{float(item.get('price', 0)):.2f} {item.get('description', '')}"
-        for item in scoped_menu[:10]
-    ])
-    combo_preview = "；".join([
-        f"{combo.get('name')} ¥{float(combo.get('price', 0)) * float(combo.get('discount', 1)):.2f}"
-        for combo in scoped_combos[:6]
-    ])
+    existing_item_ids = data.get('existing_item_ids') or []
+    replace_item_id = data.get('replace_item_id')
+    if replace_item_id not in (None, ''):
+        try:
+            replace_item_id = int(replace_item_id)
+        except (TypeError, ValueError):
+            replace_item_id = None
 
-    prompt = (
-        "你是智能外卖平台的点餐助手。"
-        "请根据用户人数、预算和口味偏好，推荐 2-3 个单品和 1 个可选套餐，"
-        "并说明推荐原因，回复要简洁、直接、可执行。\n"
-        f"当前菜单：{menu_preview or '暂无菜单数据'}\n"
-        f"当前套餐：{combo_preview or '暂无套餐数据'}\n"
-        f"用户：{user.get('username')}\n"
-        f"人数：{people_count}\n"
-        f"预算：{budget if budget not in (None, '') else '未提供'}\n"
-        f"偏好：{preferences or '未提供'}"
+    excluded_item_ids = data.get('excluded_item_ids') or []
+    locked_item_ids = []
+    if action == 'replace_item' and replace_item_id:
+        locked_item_ids = [
+            int(item_id) for item_id in existing_item_ids
+            if str(item_id).isdigit() and int(item_id) != replace_item_id
+        ]
+        excluded_item_ids = list(set(excluded_item_ids + [replace_item_id]))
+    elif action in ('rebalance_budget', 'reroll'):
+        excluded_item_ids = list({int(item_id) for item_id in excluded_item_ids if str(item_id).isdigit()})
+
+    preference_payload = build_preference_text(
+        preference_tags=preference_tags,
+        other_requirements=other_requirements
+    )
+    preferences = preference_payload["preference_text"]
+
+    plan = build_smart_order_bundle(
+        user=user,
+        preferences=preferences,
+        budget=budget,
+        people_count=people_count,
+        store_id=store_id,
+        excluded_item_ids=excluded_item_ids,
+        locked_item_ids=locked_item_ids,
+        replace_item_id=replace_item_id
+    )
+    if not plan:
+        return jsonify({"error": "当前条件下没有匹配的推荐结果，请放宽预算或减少忌口限制。"}), 400
+
+    scoped_menu = filter_records_by_store(menu, plan["store"]["id"] if plan.get("store") else store_id)
+    scoped_combos = filter_records_by_store(combos, plan["store"]["id"] if plan.get("store") else store_id)
+    prompt = build_smart_order_model_prompt(
+        user=user,
+        action=action,
+        people_count=people_count,
+        budget=budget,
+        preferences=preferences,
+        scoped_menu=scoped_menu,
+        scoped_combos=scoped_combos,
+        plan=plan
     )
 
     ai_response, err = call_remote_ai_api(prompt, session_id=request.headers.get('X-Session-ID'))
@@ -2501,20 +3714,101 @@ def smart_order_assistant():
         mark_service_metric('smart_order', success=True)
         return jsonify({
             "recommendation": ai_response,
-            "source": "remote_api"
+            "source": "remote_api",
+            "plan": plan,
+            "requirement_keywords": preference_payload["requirement_keywords"],
+            "keyword_source": preference_payload["keyword_source"],
         }), 200
 
     mark_service_metric('smart_order', success=False)
     return jsonify({
-        "recommendation": build_local_order_assistant_reply(
-            preferences,
-            budget=budget,
-            people_count=people_count,
-            menu_source=scoped_menu,
-            combo_source=scoped_combos
+        "recommendation": (
+            f"{plan['summary']}。\n"
+            "你可以继续点击“换一道菜”“预算不变重新搭配”，也可以补充少辣、清淡、去香菜、不吃牛肉等约束继续细化。"
         ),
+        "plan": plan,
         "source": "local_fallback",
-        "warning": err or "远程AI不可用，已回退本地点餐建议。"
+        "warning": err or "远程AI不可用，已回退本地点餐建议。",
+        "requirement_keywords": preference_payload["requirement_keywords"],
+        "keyword_source": preference_payload["keyword_source"],
+        "keyword_warning": preference_payload["keyword_warning"],
+    }), 200
+
+@app.route('/api/smart-order-freestyle', methods=['POST'])
+def smart_order_freestyle():
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+
+    data = request.get_json() or {}
+    emotion = str(data.get('emotion', '')).strip()
+    time_slot = str(data.get('time_slot', '')).strip()
+    scene = str(data.get('scene', '')).strip()
+    budget = data.get('budget')
+    extra_notes = str(data.get('extra_notes', '')).strip()
+    store_id = data.get('store_id')
+
+    if store_id not in (None, ''):
+        try:
+            store_id = int(store_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "店铺参数不合法。"}), 400
+    else:
+        store_id = None
+
+    if not any([emotion, time_slot, scene, extra_notes]):
+        return jsonify({"error": "请至少填写情绪、时间段、场景或补充说明中的一项。"}), 400
+
+    freestyle_preferences = build_freestyle_preferences(emotion, time_slot, scene, extra_notes)
+    scene_config = FREESTYLE_SCENE_PREFERENCES.get(scene, {})
+    people_count = int(scene_config.get("people_count", data.get('people_count', 1) or 1))
+
+    plan = build_smart_order_bundle(
+        user=user,
+        preferences=freestyle_preferences,
+        budget=budget,
+        people_count=people_count,
+        store_id=store_id
+    )
+    if not plan:
+        return jsonify({"error": "当前随心条件下没有匹配的推荐结果，请放宽预算或减少限制。"}), 400
+
+    scoped_menu = filter_records_by_store(menu, plan["store"]["id"] if plan.get("store") else store_id)
+    scoped_combos = filter_records_by_store(combos, plan["store"]["id"] if plan.get("store") else store_id)
+
+    prompt = build_smart_order_model_prompt(
+        user=user,
+        action='freestyle',
+        people_count=people_count,
+        budget=budget,
+        preferences=f"{freestyle_preferences}；情绪:{emotion or '未提供'}；时段:{time_slot or '未提供'}；场景:{scene or '未提供'}",
+        scoped_menu=scoped_menu,
+        scoped_combos=scoped_combos,
+        plan=plan
+    )
+
+    ai_response, err = call_remote_ai_api(prompt, session_id=request.headers.get('X-Session-ID'))
+    if ai_response:
+        mark_service_metric('smart_order', success=True)
+        return jsonify({
+            "recommendation": ai_response,
+            "source": "remote_api",
+            "plan": plan,
+            "freestyle_preferences": freestyle_preferences,
+            "people_count": people_count
+        }), 200
+
+    mark_service_metric('smart_order', success=False)
+    return jsonify({
+        "recommendation": (
+            f"已根据你的情绪、时间段和场景生成随心推荐：{plan['summary']}。\n"
+            f"系统理解到的偏好是：{freestyle_preferences or '未提炼出明确偏好'}。"
+        ),
+        "plan": plan,
+        "source": "local_fallback",
+        "warning": err or "远程AI不可用，已回退本地随心推荐。",
+        "freestyle_preferences": freestyle_preferences,
+        "people_count": people_count
     }), 200
 
 @app.route('/api/data-analysis', methods=['GET'])
@@ -2531,8 +3825,9 @@ def get_data_analysis():
     ]) or "暂无销量数据"
 
     prompt = (
-        "你是餐饮经营分析助手。请基于以下经营数据输出 3 条核心洞察和 3 条经营建议，"
-        "并补充风险提示，语言简洁，适合商家直接查看。\n"
+        "你是餐饮经营分析助手。请基于以下经营数据输出一段自然语言总结，"
+        "同时补充 3 条核心洞察、3 条经营建议和风险提示，语言简洁，适合商家直接查看。\n"
+        f"店铺：{analysis_payload.get('store', {}).get('name', '当前店铺')}\n"
         f"总订单：{analysis_payload['stats']['total_orders']}\n"
         f"已完成订单：{analysis_payload['stats']['completed_orders']}\n"
         f"待处理订单：{analysis_payload['stats']['pending_orders']}\n"
@@ -2540,19 +3835,100 @@ def get_data_analysis():
         f"总营收：¥{analysis_payload['stats']['total_revenue']:.2f}\n"
         f"平均客单价：¥{analysis_payload['stats']['average_order_value']:.2f}\n"
         f"复购率：{analysis_payload['stats']['repurchase_rate']:.2f}%\n"
+        f"商品数：{analysis_payload['stats']['menu_count']}\n"
+        f"套餐数：{analysis_payload['stats']['combo_count']}\n"
+        f"评价数：{analysis_payload['review_stats']['review_count']}\n"
+        f"综合评分：{analysis_payload['review_stats']['average_rating']:.1f}\n"
+        f"配送评分：{analysis_payload['review_stats']['delivery_rating']:.1f}\n"
+        f"包装评分：{analysis_payload['review_stats']['packaging_rating']:.1f}\n"
+        f"口味评分：{analysis_payload['review_stats']['taste_rating']:.1f}\n"
         f"热销商品：{top_items_text}"
     )
 
     ai_response, err = call_remote_ai_api(prompt, session_id=request.headers.get('X-Session-ID'))
     mark_service_metric('data_analysis', success=bool(ai_response))
-    analysis_payload["ai_summary"] = ai_response or "\n".join(
-        [f"洞察：{line}" for line in analysis_payload["insights"]] +
-        [f"建议：{line}" for line in analysis_payload["suggestions"]]
-    )
+    analysis_payload["ai_summary"] = ai_response or analysis_payload["narrative_summary"]
     analysis_payload["source"] = "remote_api" if ai_response else "local_fallback"
     if err and not ai_response:
         analysis_payload["warning"] = err
     return jsonify(analysis_payload), 200
+
+
+@app.route('/api/merchant-assistant', methods=['POST'])
+def merchant_assistant():
+    user, error_response, status_code = get_authenticated_user(required_roles=['merchant', 'admin'])
+    if error_response:
+        return error_response, status_code
+
+    data = request.get_json() or {}
+    message = str(data.get("message", "")).strip()
+    history = data.get("history") or []
+    if not message:
+        return jsonify({"error": "请输入经营问题。"}), 400
+
+    store_id = get_store_id_for_request(user, allow_all_for_admin=True)
+    analysis_payload = build_local_analysis_payload(store_id=store_id)
+    store_name = analysis_payload.get("store", {}).get("name", "当前店铺")
+    top_items_text = "；".join([
+        f"{item['name']} 销量{item['quantity']} 营收¥{item['revenue']:.2f}"
+        for item in analysis_payload["top_items"][:5]
+    ]) or "暂无销量数据"
+    recent_reviews = filter_records_by_store(reviews, store_id)
+    recent_reviews = sorted(recent_reviews, key=lambda review: review.get("created_at", ""), reverse=True)[:5]
+    review_text = "；".join([
+        f"{review.get('customer', '匿名用户')} 评分{float(review.get('rating', 0)):.1f}：{(review.get('content') or '未填写评价')[:40]}"
+        for review in recent_reviews
+    ]) or "暂无近期评价"
+    recent_orders = filter_records_by_store(orders, store_id)
+    recent_orders = sorted(recent_orders, key=lambda order: order.get("created_at", ""), reverse=True)[:5]
+    order_text = "；".join([
+        f"订单#{order.get('id')} {order.get('status')} ¥{float(order.get('total', 0)):.2f} {order.get('created_at', '')}"
+        for order in recent_orders
+    ]) or "暂无近期订单"
+
+    assistant_prompt = (
+        "你是商家经营助手，需要基于店铺真实经营数据给出可执行建议。"
+        "回答要直接、具体，优先结合销量、订单、评价、复购和履约情况。"
+        "如用户追问方案，给出分步骤建议。不要输出思考过程。\n"
+        f"店铺名称：{store_name}\n"
+        f"系统自动总结：{analysis_payload.get('narrative_summary', '')}\n"
+        f"经营指标：总订单{analysis_payload['stats']['total_orders']}，已完成{analysis_payload['stats']['completed_orders']}，"
+        f"待处理{analysis_payload['stats']['pending_orders']}，已取消{analysis_payload['stats']['cancelled_orders']}，"
+        f"营业额¥{analysis_payload['stats']['total_revenue']:.2f}，客单价¥{analysis_payload['stats']['average_order_value']:.2f}，"
+        f"复购率{analysis_payload['stats']['repurchase_rate']:.2f}%\n"
+        f"评价指标：综合{analysis_payload['review_stats']['average_rating']:.1f}，配送{analysis_payload['review_stats']['delivery_rating']:.1f}，"
+        f"包装{analysis_payload['review_stats']['packaging_rating']:.1f}，口味{analysis_payload['review_stats']['taste_rating']:.1f}，"
+        f"评价数{analysis_payload['review_stats']['review_count']}\n"
+        f"热销商品：{top_items_text}\n"
+        f"近期订单：{order_text}\n"
+        f"近期评价：{review_text}\n"
+        f"系统洞察：{'；'.join(analysis_payload.get('insights', []))}\n"
+        f"系统建议：{'；'.join(analysis_payload.get('suggestions', []))}\n"
+        f"系统风险：{'；'.join(analysis_payload.get('risks', []))}\n"
+        f"商家问题：{message}"
+    )
+
+    normalized_history = history[-8:] if isinstance(history, list) else []
+    ai_response, err = call_remote_ai_api(
+        assistant_prompt,
+        history=normalized_history,
+        session_id=request.headers.get('X-Session-ID')
+    )
+    if ai_response:
+        mark_service_metric('data_analysis', success=True)
+        return jsonify({
+            "reply": ai_response,
+            "source": "remote_api",
+            "context_summary": analysis_payload.get("narrative_summary", "")
+        }), 200
+
+    mark_service_metric('data_analysis', success=False)
+    return jsonify({
+        "reply": build_merchant_assistant_fallback_reply(message, analysis_payload),
+        "source": "local_fallback",
+        "warning": err or "远程AI不可用，已回退到本地经营建议。",
+        "context_summary": analysis_payload.get("narrative_summary", "")
+    }), 200
 
 # AI 客服对话（代理远程模型 HTTP API）
 def build_ai_payload(message, image_url=None, history=None, include_model=True):
@@ -2847,6 +4223,38 @@ def generate_mock_response(message):
     else:
         return "您好！我是智能外卖平台的AI助手。如有任何问题，请详细描述，我会尽力帮助您！"
 
+@app.route('/api/ai-conversations', methods=['GET'])
+def get_ai_conversations():
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+    return jsonify({
+        "conversations": [
+            serialize_conversation_summary(conversation)
+            for conversation in get_ai_conversations_for_user(user.get("id"))
+        ]
+    }), 200
+
+@app.route('/api/ai-conversations', methods=['POST'])
+def create_ai_conversation_api():
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+    data = request.get_json() or {}
+    title = str(data.get("title", "")).strip() or "新对话"
+    conversation = create_ai_conversation(user, title=title)
+    return jsonify({"conversation": serialize_conversation_detail(conversation)}), 201
+
+@app.route('/api/ai-conversations/<conversation_id>', methods=['GET'])
+def get_ai_conversation_detail(conversation_id):
+    user, error_response, status_code = get_authenticated_user(required_roles=['customer'])
+    if error_response:
+        return error_response, status_code
+    conversation = get_ai_conversation_by_id(conversation_id, user_id=user.get("id"))
+    if not conversation:
+        return jsonify({"error": "会话不存在。"}), 404
+    return jsonify({"conversation": serialize_conversation_detail(conversation)}), 200
+
 @app.route('/api/ai-agent', methods=['POST'])
 @app.route('/api/chat', methods=['POST'])  # 兼容旧前端
 def ai_agent():
@@ -2867,15 +4275,35 @@ def ai_agent():
     if not message:
         message = "请识别这张图片并给出外卖相关建议。"
 
-    if not conversation_id:
-        conversation_id = generate_conversation_id()
+    conversation = get_ai_conversation_by_id(conversation_id, user_id=user.get("id")) if conversation_id else None
+    if not conversation:
+        initial_title = build_ai_conversation_title(message) if message and not image_url else "新对话"
+        conversation = create_ai_conversation(user, title=initial_title)
+        conversation_id = conversation.get("id")
 
     if reset_context:
-        ai_conversation_store.pop(conversation_id, None)
+        conversation["messages"] = []
+        conversation["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        persist_data()
 
-    stored_history = ai_conversation_store.get(conversation_id, [])
+    stored_history = [
+        {"role": item.get("role"), "content": item.get("content", "")}
+        for item in conversation.get("messages", [])
+    ]
     business_context = build_business_context_text(session_id=session_id)
     effective_history = [{"role": "system", "content": business_context}]
+
+    image_recommendation_payload = None
+    if image_url:
+        image_context, image_err, image_recommendation_payload = build_image_recommendation_context(
+            image_url,
+            user_message=message,
+            session_id=session_id or conversation_id
+        )
+        if image_context:
+            effective_history.append({"role": "system", "content": image_context})
+        elif image_err:
+            print(f"图片识别检索上下文构建失败: {image_err}")
 
     # 客户端显式 history 优先，其次用服务端缓存 history
     if isinstance(history, list) and history:
@@ -2918,28 +4346,38 @@ def ai_agent():
                 if not looks_like_truncated_answer(final_response):
                     break
 
-        stored_history.append({"role": "user", "content": message})
-        stored_history.append({"role": "assistant", "content": final_response})
-        ai_conversation_store[conversation_id] = trim_conversation_history(stored_history)
+        if not conversation.get("messages"):
+            conversation["title"] = build_ai_conversation_title(message)
+        append_ai_conversation_message(conversation, "user", message)
+        append_ai_conversation_message(conversation, "assistant", final_response)
+        persist_data()
 
         return jsonify({
             "response": final_response,
             "source": "remote_api",
-            "conversation_id": conversation_id
+            "conversation_id": conversation_id,
+            "conversation": serialize_conversation_summary(conversation),
+            "recognized_text": (image_recommendation_payload or {}).get("recognized_text"),
+            "recommendations": (image_recommendation_payload or {}).get("recommendation_cards", [])
         }), 200
 
     # 失败时回退到模拟回复，保证页面可用
     mark_service_metric('ai_chat', success=False)
     print(f"AI代理回退到模拟回复: {err}")
     fallback = generate_mock_response(message)
-    stored_history.append({"role": "user", "content": message})
-    stored_history.append({"role": "assistant", "content": fallback})
-    ai_conversation_store[conversation_id] = trim_conversation_history(stored_history)
+    if not conversation.get("messages"):
+        conversation["title"] = build_ai_conversation_title(message)
+    append_ai_conversation_message(conversation, "user", message)
+    append_ai_conversation_message(conversation, "assistant", fallback)
+    persist_data()
     return jsonify({
         "response": fallback,
         "source": "mock",
         "warning": err or "远程AI服务不可用，已回退模拟回复。",
-        "conversation_id": conversation_id
+        "conversation_id": conversation_id,
+        "conversation": serialize_conversation_summary(conversation),
+        "recognized_text": (image_recommendation_payload or {}).get("recognized_text"),
+        "recommendations": (image_recommendation_payload or {}).get("recommendation_cards", [])
     }), 200
 
 if __name__ == '__main__':
